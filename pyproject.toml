@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "farsight"
+version = "0.0.1"
+description = "Deep-space autonomy verification and mission-evidence platform"
+readme = "README.md"
+# ADR-014: pinned at 3.12, the ceiling of the GMAT (3.9-3.12) / Basilisk (>=3.9,<3.15) intersection.
+requires-python = ">=3.12,<3.13"
+
+dependencies = [
+  "pydantic>=2,<3",      # schemas: the only typed vocabulary (ADR-001, ADR-004)
+  "numpy>=1.26,<3",      # channels, Philox raw words (ADR-005, ADR-020, ADR-022)
+  "scipy>=1.11,<2",      # test oracle for inverse-CDF accuracy (ADR-022); retained in core only
+                         # while ADR-007's verify dependency set names it
+  "astropy>=6,<8",       # BSD-3; boundary unit typing only, never inner loops (ADR-008)
+  "typer>=0.12,<1",      # the CLI is the whole UI (ADR-024; no web UI)
+]
+
+[project.optional-dependencies]
+# ADR-014 / ADR-013: spiceypy is an EXTRA, not a core dependency -- the auditor's zero-extras
+# install must not pull a compiled CSPICE. This is the property three records call the most
+# commercially important in the codebase.
+spice    = ["spiceypy>=6,<7"]
+basilisk = ["bsk"]       # ISC; version floor >= the post-construction RNGSeed fix -- UNVERIFIED,
+                         # set in the week-1 spike (ADR-002, ADR-014)
+gmat     = []            # deliberately empty: GMAT is a user-installed tree, not a dependency
+analysis = ["pandas", "matplotlib"]   # quarantined by ADR-013; nothing in the truth loop imports it
+dev      = ["pytest", "pytest-socket", "hypothesis", "import-linter", "ruff", "mypy", "pytest-cov"]
+
+[project.scripts]
+farsight = "farsight.cli.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/farsight"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

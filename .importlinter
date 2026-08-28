@@ -1,0 +1,116 @@
+; ADR-013 -- package boundaries, in CI from the first commit.
+; Boundary erosion is the modular monolith's characteristic death mode, so these run before
+; there is enough code for anyone to erode.
+
+[importlinter]
+root_package = farsight
+include_external_packages = True
+
+[importlinter:contract:schemas_is_leaf]
+name = schemas imports nothing internal
+type = forbidden
+source_modules =
+    farsight.schemas
+forbidden_modules =
+    farsight.hashing
+    farsight.units
+    farsight.registry
+    farsight.engines
+    farsight.faults
+    farsight.uncertainty
+    farsight.experiments
+    farsight.metrics
+    farsight.comparison
+    farsight.evidence
+    farsight.cli
+    farsight.analysis
+
+[importlinter:contract:auditor_boundary]
+; THE commercially decisive rule: `farsight evidence verify` must run on a clean install with
+; zero engine extras, on an auditor's laptop. evidence/ and hashing/ therefore never import
+; engines/ -- not the adapters, not the worker, not the base protocols.
+name = evidence and hashing never import engines
+type = forbidden
+source_modules =
+    farsight.evidence
+    farsight.hashing
+forbidden_modules =
+    farsight.engines
+
+[importlinter:contract:adapters_only_via_base]
+; The planner and the fault/uncertainty compilers see adapters only through the protocols.
+name = orchestration sees adapters only via engines.base
+type = forbidden
+source_modules =
+    farsight.faults
+    farsight.uncertainty
+    farsight.experiments
+forbidden_modules =
+    farsight.engines.spice
+    farsight.engines.basilisk
+    farsight.engines.linkchain
+    farsight.engines.gmat
+
+[importlinter:contract:analysis_quarantine]
+; analysis/ is the only package allowed heavy interactive dependencies. Nothing in the truth
+; loop may import it.
+name = nothing in the truth loop imports analysis
+type = forbidden
+source_modules =
+    farsight.schemas
+    farsight.hashing
+    farsight.units
+    farsight.registry
+    farsight.engines
+    farsight.faults
+    farsight.uncertainty
+    farsight.experiments
+    farsight.metrics
+    farsight.comparison
+    farsight.evidence
+forbidden_modules =
+    farsight.analysis
+
+[importlinter:contract:no_llm_sdk]
+; ADR-025. "Is an LLM installed?" must be answerable `no` from a lock file, with no qualifier.
+name = no LLM SDK anywhere in the repository
+type = forbidden
+source_modules =
+    farsight
+forbidden_modules =
+    anthropic
+    openai
+    langchain
+    llama_index
+    transformers
+
+[importlinter:contract:no_units_lib_in_core]
+; ADR-008: units are validated at schema boundaries and normalized once; the numeric core is
+; raw SI float64. A unit library in an inner loop is a 20-100x tax and a correctness illusion.
+name = no unit library in the numeric core
+type = forbidden
+source_modules =
+    farsight.metrics
+    farsight.engines.linkchain
+forbidden_modules =
+    astropy
+
+    pint
+
+[importlinter:contract:no_network_in_truth_loop]
+; ADR-012: the runner and the verifier make zero network calls, ever. Acquisition is the
+; separate `farsight fetch` path in acquire/.
+name = no network in the truth loop
+type = forbidden
+source_modules =
+    farsight.schemas
+    farsight.hashing
+    farsight.experiments
+    farsight.engines
+    farsight.metrics
+    farsight.evidence
+forbidden_modules =
+    requests
+    httpx
+    urllib3
+    aiohttp

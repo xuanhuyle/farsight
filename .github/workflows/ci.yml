@@ -1,0 +1,37 @@
+# ADR-013: boundary contracts run in CI from the first commit, because boundary erosion is the
+# modular monolith's characteristic death mode.
+# ADR-006: Windows and Linux both, from week 1 -- development is on Windows and deployment is
+# in a Linux container, and per-platform golden hashes only work if both are exercised early.
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # ADR-014: the GMAT/Basilisk intersection ceiling
+      - run: python -m pip install -e ".[dev]"
+      - name: unit tests
+        run: python -m pytest tests/unit -q
+      - name: import boundaries
+        run: lint-imports
+
+  no-network:
+    # ADR-012: the truth loop makes zero network calls, ever. Proven by running the suite with
+    # sockets disabled rather than by asserting it in prose.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest tests/unit -q --disable-socket
