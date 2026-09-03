@@ -25,6 +25,8 @@ import hashlib
 import json
 from typing import Any
 
+from farsight.schemas.errors import FarSightError
+
 __all__ = [
     "CanonicalizationError",
     "canonicalize",
@@ -42,11 +44,19 @@ _MAX_EXACT_INT = 2**53
 _MIN_EXACT_INT = -(2**53)
 
 
-class CanonicalizationError(ValueError):
+class CanonicalizationError(FarSightError, ValueError):
     """A document cannot be canonicalized, and therefore cannot be hashed.
 
     Raised rather than worked around. Every instance names the JSON pointer of the offending
     value, because the failure is nearly always a schema defect one layer up.
+
+    Both bases are load-bearing. ``FarSightError`` because ADR-023 decision 8 requires every
+    exception defined under ``src/farsight/`` to sit in the hierarchy -- one that does not is a
+    site nobody classified, and the worker boundary needs a closed exception-to-``failure_class``
+    mapping. ``ValueError`` because this is raised from inside Pydantic validators as well as
+    directly, and Pydantic only folds ``ValueError`` and ``AssertionError`` into a
+    ``ValidationError``; dropping it would make a hashing failure inside a validator escape as a
+    second exception type callers would have to catch separately.
     """
 
 

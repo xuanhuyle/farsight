@@ -43,6 +43,7 @@ from farsight.schemas.common import (
     VersionedDocument,
     validate_path,
 )
+from farsight.schemas.expr import Derivation
 
 __all__ = [
     "PedigreeLevel",
@@ -191,10 +192,45 @@ class _BeliefBase(FrozenModel):
 
 
 class Deterministic(_BeliefBase):
-    """A value we claim to know."""
+    """A value we claim to know.
+
+    ``derivation`` is present when this value was *computed* from other bound parameters rather
+    than chosen (ADR-029 decision 4: the freeze evaluates a ``DerivedBinding`` and materializes
+    an ordinary ``Deterministic`` here, carrying the hashed expression). It is the edge that
+    makes a lineage query transitive -- a derived value reaches a run like any other
+    deterministic value, and without this field the trail stops at the number.
+
+    ``None`` means authored, not unknown. The two are different claims and this field
+    distinguishes them, which is why it is explicit rather than inferred from
+    ``pedigree.level``.
+    """
 
     kind: Literal["deterministic"] = "deterministic"
     value: Quantity
+    derivation: Derivation | None = None
+
+    @model_validator(mode="after")
+    def _derivation_matches_pedigree(self) -> "Deterministic":
+        """A derived value may not claim to have been measured.
+
+        ADR-029 fixes ``pedigree.level: "derived_analysis"`` for a materialized derivation. The
+        rule is worth enforcing rather than documenting because the wrong combination is both
+        easy to write and invisible afterwards: a number carrying an expression *and* a
+        ``measured_flight`` pedigree would be read by every downstream register as a
+        measurement, and the evidence package's whole job is that a reader can tell those apart.
+
+        One-directional on purpose. ``derived_analysis`` without a ``derivation`` stays legal --
+        an engineer who computed a value by hand is doing derived analysis, and demanding they
+        express it in a seven-node AST first would push honest work outside the record.
+        """
+        if self.derivation is not None and self.pedigree.level != "derived_analysis":
+            raise ValueError(
+                f"this value carries a derivation but its pedigree claims "
+                f"{self.pedigree.level!r}. A computed quantity is 'derived_analysis' "
+                f"(ADR-029 decision 4); labelling it as measured would make a formula "
+                f"indistinguishable from an observation in every downstream register."
+            )
+        return self
 
     def sample(self, rng: Any) -> float:  # noqa: ARG002 - signature parity with Aleatory
         """The value in its declared unit, as float64.

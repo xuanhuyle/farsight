@@ -131,3 +131,49 @@ def test_deep_review_artifacts_carry_the_status_line():
         assert "NOT externally expert-reviewed" in text, (
             f"{r.name} must carry the ADR-030 status line, including its negative half"
         )
+
+
+def test_exception_hierarchy_closed():
+    """ADR-023 Enforcement item 6, the leg that is checkable today.
+
+    Every exception class defined under ``src/farsight/`` subclasses ``FarSightError``. The
+    reason is not tidiness: the worker boundary needs a closed mapping from exception type to
+    ``failure_class`` (ADR-023 decision 8), and a closed mapping over the standard library's
+    open set is not writable. An exception outside the hierarchy is a site nobody classified.
+
+    The other two legs -- that no ``FreezeTimeError`` is raised under ``engines/``, and that the
+    worker returns a ``RunOutcome`` for every injected error -- need the worker, and are not
+    silently skipped: they are named here so the gap is visible when this test passes.
+    """
+    import ast
+
+    src = REPO / "src" / "farsight"
+    known = {"FarSightError"}
+    offenders: list[str] = []
+    for path in sorted(src.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            base_names = {b.id for b in node.bases if isinstance(b, ast.Name)}
+            base_names |= {b.attr for b in node.bases if isinstance(b, ast.Attribute)}
+            looks_like_exception = (
+                node.name.endswith("Error")
+                or bool(base_names & {"Exception", "BaseException", "ValueError", "RuntimeError"})
+            )
+            if not looks_like_exception:
+                continue
+            if node.name == "FarSightError":
+                continue
+            if not (base_names & known):
+                offenders.append(
+                    f"{path.relative_to(REPO).as_posix()}:{node.lineno}: {node.name}"
+                    f"({', '.join(sorted(base_names)) or 'object'})"
+                )
+            else:
+                known.add(node.name)
+    assert not offenders, (
+        "exceptions outside the FarSightError hierarchy (ADR-023 decision 8); each is a site "
+        "the worker's exception-to-failure_class mapping cannot classify:\n  "
+        + "\n  ".join(offenders)
+    )

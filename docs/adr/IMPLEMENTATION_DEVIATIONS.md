@@ -121,6 +121,101 @@ subtree form that expands to explicit paths at freeze — the same materialize-a
 
 ---
 
+## DEV-6 — `ValueSource` carries the path and origin ADR-018 sketched it without
+
+**Record:** [ADR-018](ADR-018-run-composition.md) — `ValueSource` is sketched with two fields,
+`kind` and `value: Quantity`
+**Code:** `src/farsight/schemas/execution.py` — `ValueSource`, `parameter_paths`
+
+**What differs.** Two required fields are added: `path` (the topology path the value was bound
+at) and `origin` (a closed six-member enum naming the route it arrived by). `StageSpec` and the
+six composition rules are otherwise as the record writes them, and `StageInput` still has exactly
+three members, so ADR-018 Enforcement item 2 is untouched.
+
+**Why.** This is finding G1 of the self-audit review. As sketched, a lowered value carried the
+number and nothing else, so every deterministic and every derived parameter had no
+reconstructible edge into any run. The only available join was matching decimal strings, and
+ADR-001 makes `"0.220" != "0.22"` precisely so that a value is never a key. Two accepted
+requirements depended on the missing edge: ADR-004's rule that `verify` **recompute** collapse
+taint by intersecting a scope with the paths a result depends on, and AT-6's rule that a RunSpec
+assigning a point value to a flagged `Unknown` be rejected *by schema*. Neither was implementable.
+
+`origin` rather than `path` alone, for two reasons a path cannot cover. A per-group sampling
+scope draws `len(members)` values **from one binding at one path** (ADR-027), so several values
+legitimately share a path and `group_member` is what tells them apart. And an `Unknown` carrying
+a *declared sweep* legitimately produces point values, so AT-6 cannot be enforced by refusing all
+values at an unknown's path — the enum has a member for a declared sweep point and none for
+anything else, which makes the illegitimate case unsayable rather than validated.
+
+**Consequence if this is the wrong call.** `spec_hash` changes, and `RunSpec` is the most-hashed
+document in the system. That cost is why this lands now: nothing is frozen yet, and ADR-018's own
+Option 3 makes the same argument for the same reason — "the change is nearly free now and
+invalidates the Tier-A golden corpus later". The authoring burden is nil, since a planner emits
+these, not a human.
+
+**An unchecked cross-record dependency this creates.** Closing transitively from a derived value
+to its contributing parameters requires the evidence package to carry the complete frozen
+`UncertaintySpec`, including every materialized `Deterministic.derivation` — not only the runs.
+ADR-007 does not state that in those terms. If a package ever ships runs without it,
+`parameter_paths` stays correct while the transitive question becomes silently unanswerable for
+an external auditor, which is G1 again one level up. No test can catch this until the package
+builder exists; it is recorded here so it is found by reading rather than by an auditor failing.
+
+**Closes by:** the superseding record the self-audit review proposes for ADR-018 (`ValueSource.path`
+and `StageSpec.model_ref`), which should also state the ADR-007 dependency above.
+
+**Status:** internally cross-checked; the constraint set behind it was assembled by reading the
+ten binding records directly. Not externally expert-reviewed.
+
+---
+
+## DEV-5 — the arithmetic AST lives in `schemas/expr.py`, not `schemas/design.py`
+
+**Record:** [ADR-029](ADR-029-derived-bindings.md) decision 2 — the `ArithExpr` sketch is
+annotated `# src/farsight/schemas/design.py`
+**Code:** `src/farsight/schemas/expr.py`
+
+**What differs.** Module placement only. The grammar is exactly the seven node kinds ADR-029
+fixes, with no eighth.
+
+**Why.** The placement as sketched is an import cycle. `design.py` imports `belief.py`, because
+an `UncertaintySpec` holds `Belief` objects; and `belief.py` needs the expression type, because
+ADR-029 decision 4 materializes a derived value as a `Deterministic` **carrying the hashed
+expression as its derivation record**. Putting the AST in `design.py` therefore requires
+`belief.py` to import `design.py` and `design.py` to import `belief.py`. A leaf module both can
+import is the smallest resolution; the alternative — moving `Derivation` off the belief — would
+undo the very edge ADR-029 decision 4 exists to create.
+
+**Related, and not a deviation:** `Deterministic.derivation` is new, and it implements ADR-029
+decision 4 rather than departing from it. The record states the materialized belief carries the
+expression; no record gave it a field, which is the same shape as finding D2 (a stated
+capability with nothing to hold it).
+
+**What is enforced.** `inputs` is materialized alongside the expression and checked against it
+on every construction, so the shortcut a lineage query reads cannot disagree with the authority
+it summarizes. A `Derivation` on a belief whose pedigree is not `derived_analysis` is refused.
+Node-count and depth ceilings turn an over-large expression into a refusal rather than a
+`RecursionError` inside the canonicalizer.
+
+**What is deliberately NOT enforced here, and where it belongs.** That every `ParamLeaf` resolves
+to a path bound to a `Deterministic` (ADR-029 decision 3); that the derivation graph is a DAG
+(decision 4); and that the expression is dimensionally coherent. The first two need the whole
+design, which a single belief cannot see. The third needs a unit library, which the
+`no_units_lib_in_core` contract forbids `schemas` from importing and which ADR-029 puts at
+freeze in SI float64. Claiming any of them here would be worse than omitting them, because a
+caller would believe an expression had been checked when it had not.
+
+**Consequence if this is the wrong call.** A third module in `schemas/`. If the freeze validator
+later wants the AST and the design types in one file, moving it is a rename with no semantic
+change, because nothing about the grammar depends on where it lives.
+
+**Closes by:** a superseding record naming the module, or ADR-029 being reissued with the
+placement corrected.
+
+**Status:** internally cross-checked. Not externally expert-reviewed.
+
+---
+
 ## DEV-4 — `ValidityEnvelope.conditions` is optional in code, required by ADR-004
 
 **Record:** [ADR-004](ADR-004-uncertainty-belief-model.md) — `conditions` "required and non-empty"

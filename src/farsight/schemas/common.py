@@ -34,6 +34,7 @@ __all__ = [
     "SEGMENT_RE",
     "PATH_RE",
     "is_ref",
+    "is_under",
     "normalize_decimal",
     "validate_path",
 ]
@@ -87,6 +88,16 @@ _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 def is_ref(s: str) -> bool:
     """True when ``s`` is a bare lowercase 64-hex content address (ADR-001 rule 7)."""
     return bool(_HEX64_RE.match(s))
+
+
+def is_under(path: str, subtree: str) -> bool:
+    """True when ``path`` is ``subtree`` itself or lies beneath it (ADR-017 decision 6).
+
+    Reproduced verbatim from the record because several structural checks need it before a
+    ``SystemTopology`` exists to resolve against. The ``+ "."`` matters: without it ``link``
+    would appear to contain ``link_margin``, which is a different parameter.
+    """
+    return path == subtree or path.startswith(subtree + ".")
 
 
 def validate_path(s: str) -> str:
