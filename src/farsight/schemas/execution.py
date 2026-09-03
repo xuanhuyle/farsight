@@ -73,6 +73,7 @@ __all__ = [
     "RunSpec",
     "STAGE_INPUT_MEMBERS",
     "parameter_paths",
+    "paths_reaching_stage",
     "value_sources_for_path",
 ]
 
@@ -435,6 +436,11 @@ def parameter_paths(spec: RunSpec) -> frozenset[str]:
     function to accept a design and would make the run-level question -- which parameters were
     *bound into this run* -- unaskable on its own.
 
+    **Prefer :func:`paths_reaching_stage` when the question is about one metric.** This
+    whole-run union is the coarsest honest answer, and a taint computed from it credits a metric
+    over a geometry channel with the engine stage's parameters too. Use this only when the
+    question really is "what went into this run".
+
     **The transitive closure has a dependency worth stating, because nothing checks it yet.**
     Walking from a derived value to its contributing parameters requires the package to carry the
     complete frozen ``UncertaintySpec``, including every materialized ``Deterministic.derivation``
@@ -446,6 +452,57 @@ def parameter_paths(spec: RunSpec) -> frozenset[str]:
     return frozenset(
         v.path for stage in spec.stages for v in stage.value_sources()
     )
+
+
+def paths_reaching_stage(spec: RunSpec, stage_id: str) -> frozenset[str]:
+    """The paths that can influence ``stage_id``'s output: its own, plus every upstream stage's.
+
+    This is the narrowest dependency set ``verify`` is *able* to compute, and using it rather
+    than :func:`parameter_paths` is what stops a taint from being wider than it has to be. A
+    metric over ``geometry.range`` depends on the geometry stage alone; crediting it with the
+    link chain's whole parameter set as well would be true and useless.
+
+    Traversal is transitive through ``ChannelSource``: if the link stage reads
+    ``geometry.range``, geometry's literals reach it. Stage order is total (ADR-018 rule 3), so
+    the walk terminates without a cycle check.
+
+    **This is an upper bound on dependence, not dependence.** It is a structural answer -- every
+    path that *could* flow into the stage -- because the precise one is a physical question.
+    ADR-003 makes a provider's config opaque and promises FarSight never reads it physically, and
+    ADR-007 decision 7 says ``verify`` "never executes physics", so no verifier can know that a
+    parameter reached a stage and changed nothing. Two consequences worth stating plainly rather
+    than discovering later:
+
+      * On a run like the DSOC flagship, whose engine stage consumes nearly the whole flight-side
+        parameter set, this set is nearly everything. A single collapse anywhere can therefore
+        taint nearly every verdict.
+      * That is a real risk of the advisory-flag failure ADR-004's Option 2 was rejected for --
+        reached by a different road. If ``contains_epistemic_collapse`` is true everywhere,
+        reviewers stop reading it.
+
+    The instrument that answers the narrow question is sensitivity, not lineage: ADR-004's outer
+    scan already perturbs a coordinate across its declared range and observes whether the verdict
+    moves. Lineage says *what could have mattered*; sensitivity says *what did*. Conflating them
+    would make this function claim a precision it cannot have.
+    """
+    by_id = {s.stage_id: s for s in spec.stages}
+    if stage_id not in by_id:
+        raise KeyError(f"run has no stage {stage_id!r}; stages are {sorted(by_id)}")
+
+    reached: set[str] = set()
+    pending = [stage_id]
+    visited: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        stage = by_id[current]
+        reached.update(v.path for v in stage.value_sources())
+        for source in stage.bindings.values():
+            if isinstance(source, ChannelSource):
+                pending.append(source.from_stage)
+    return frozenset(reached)
 
 
 def value_sources_for_path(spec: RunSpec, path: str) -> list[ValueSource]:

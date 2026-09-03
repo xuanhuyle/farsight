@@ -29,6 +29,7 @@ from farsight.schemas.execution import (
     StageSpec,
     ValueSource,
     parameter_paths,
+    paths_reaching_stage,
     value_sources_for_path,
 )
 
@@ -320,3 +321,45 @@ def test_the_origin_is_part_of_identity():
 def test_run_index_is_a_position_in_an_enumeration():
     with pytest.raises(ValidationError, match="never negative"):
         RunSpec(experiment_hash=HEX, run_index=-1, stages=[stage("a")])
+
+
+# --------------------------------------------------------------------------------------
+# Dependency granularity: the narrowest set verify can compute, and its honest limits
+# --------------------------------------------------------------------------------------
+
+
+def test_a_metric_over_an_early_stage_is_not_charged_with_later_stages():
+    """The whole-run union credits a geometry metric with the link chain's parameters too, which
+    is true and useless. Stage-granular attribution is the narrowest set `verify` can compute."""
+    run = dsoc_run()
+    assert paths_reaching_stage(run, "geometry") == {"spacecraft.psyche.target"}
+    assert ATMOS not in paths_reaching_stage(run, "geometry")
+
+    # A collapse on an atmosphere term must NOT taint a purely geometric verdict.
+    collapse = CollapseScope(experiment_hash=HEX, parameter_paths=[ATMOS])
+    assert collapse.covers(paths_reaching_stage(run, "geometry")) == frozenset()
+    assert collapse.covers(paths_reaching_stage(run, "link")) == {ATMOS}
+
+
+def test_dependence_is_transitive_through_channel_bindings():
+    """The link stage reads geometry.range, so geometry's literals reach it. Stage order is
+    total, so the walk terminates without a cycle check."""
+    run = dsoc_run()
+    assert "spacecraft.psyche.target" in paths_reaching_stage(run, "link")
+    assert paths_reaching_stage(run, "link") == parameter_paths(run)
+
+
+def test_a_stage_that_reads_nothing_upstream_stays_narrow():
+    """Two independent stages: the second must not inherit the first's parameters merely by
+    being later in the list."""
+    run = RunSpec(experiment_hash=HEX, run_index=0, stages=[
+        stage("first", bindings={"a": vs(JITTER, "1")}, emits=["out"]),
+        stage("second", bindings={"b": vs(APERTURE, "2")}),
+    ])
+    assert paths_reaching_stage(run, "second") == {APERTURE}
+    assert parameter_paths(run) == {JITTER, APERTURE}
+
+
+def test_asking_about_a_stage_that_is_not_in_the_run_is_an_error():
+    with pytest.raises(KeyError, match="no stage"):
+        paths_reaching_stage(dsoc_run(), "nonexistent")
