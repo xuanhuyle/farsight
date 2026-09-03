@@ -128,7 +128,7 @@ subtree form that expands to explicit paths at freeze — the same materialize-a
 **Code:** `src/farsight/schemas/execution.py` — `ValueSource`, `parameter_paths`
 
 **What differs.** Two required fields are added: `path` (the topology path the value was bound
-at) and `origin` (a closed six-member enum naming the route it arrived by). `StageSpec` and the
+at) and `origin` (a closed seven-member enum naming the route it arrived by). `StageSpec` and the
 six composition rules are otherwise as the record writes them, and `StageInput` still has exactly
 three members, so ADR-018 Enforcement item 2 is untouched.
 
@@ -160,6 +160,15 @@ ADR-007 does not state that in those terms. If a package ever ships runs without
 `parameter_paths` stays correct while the transitive question becomes silently unanswerable for
 an external auditor, which is G1 again one level up. No test can catch this until the package
 builder exists; it is recorded here so it is found by reading rather than by an auditor failing.
+
+**Two routes this does NOT attribute, named so the claim is not read wider than it is.** A
+`DataArtifact` cited by `ArtifactSource` may contain physical quantities with no topology paths,
+and a provider's `config_ref` document may contain them too -- the second structurally, since
+ADR-003 makes that document opaque per dialect and commits FarSight to never reading it
+physically. No change to `execution.py` can close the second without contradicting an accepted
+record. What bounds both is ADR-017 decision 5's binding completeness, which turns "a quantity
+lives in an opaque blob" into "a declared parameter is missing from the design"; it needs a
+`SystemTopology` and is listed by `RunSpec.unenforced_rules()`.
 
 **Closes by:** the superseding record the self-audit review proposes for ADR-018 (`ValueSource.path`
 and `StageSpec.model_ref`), which should also state the ADR-007 dependency above.

@@ -111,7 +111,7 @@ def test_an_unknown_with_no_declared_sweep_has_no_origin_to_name():
 
 def test_origins_are_the_routes_the_records_sanction():
     for origin in ("deterministic", "derived", "aleatory_draw", "epistemic_point",
-                   "unknown_sweep_point", "collapse"):
+                   "unknown_sweep_point", "unknown_bounded", "collapse"):
         assert vs(JITTER, "1", origin).origin == origin
 
 
@@ -289,9 +289,11 @@ def test_unenforceable_rules_are_declared_rather_than_silently_skipped():
     """Two of the six rules need types that do not exist yet. A deferred check that says nothing
     is indistinguishable from a check that passed, which is the failure C4 was about."""
     rules = dsoc_run().unenforced_rules()
-    assert len(rules) == 2
+    assert len(rules) == 4
     assert any("SystemTopology" in r for r in rules)
     assert any("supports_stepping" in r for r in rules)
+    assert any("binding completeness" in r for r in rules)
+    assert any("origin agreement" in r for r in rules)
 
 
 # --------------------------------------------------------------------------------------
@@ -363,3 +365,34 @@ def test_a_stage_that_reads_nothing_upstream_stays_narrow():
 def test_asking_about_a_stage_that_is_not_in_the_run_is_an_error():
     with pytest.raises(KeyError, match="no stage"):
         paths_reaching_stage(dsoc_run(), "nonexistent")
+
+
+def test_an_unknown_discharged_by_a_bounding_assumption_can_be_lowered():
+    """ADR-004 gives an Unknown two legal resolutions at freeze -- a declared sweep OR a named
+    bounding assumption -- and `Unknown.freeze_ready` returns True for either. An enum covering
+    only the first makes a legal frozen design impossible to lower, which is a worse failure
+    than the one the omission was guarding against.
+    """
+    import datetime as dt
+
+    from farsight.schemas.belief import Pedigree, Unknown
+
+    unknown = Unknown(
+        what_is_missing="No measurement of the receiver optical train throughput exists.",
+        bounding_assumption_ref="b" * 64,
+        pedigree=Pedigree(level="speculative", assessor="jh", assessed_on=dt.date(2026, 9, 3)),
+    )
+    assert unknown.freeze_ready() and unknown.sweep_declaration is None
+    assert vs(APERTURE, "0.45", "unknown_bounded").origin == "unknown_bounded"
+
+
+def test_the_module_does_not_claim_lineage_it_cannot_deliver():
+    """Two routes carry numbers into a run without attribution: a DataArtifact's contents, and
+    the opaque per-dialect config document ADR-003 forbids FarSight from reading. Neither is
+    closed here, and the deferred check that bounds them is named rather than implied."""
+    run = RunSpec(experiment_hash=HEX, run_index=0, stages=[stage(
+        "s", bindings={"table": ArtifactSource(artifact_ref="c" * 64)},
+    )])
+    # An artifact-bound stage contributes no paths, and the query says so rather than guessing.
+    assert parameter_paths(run) == frozenset()
+    assert any("binding completeness" in r for r in run.unenforced_rules())

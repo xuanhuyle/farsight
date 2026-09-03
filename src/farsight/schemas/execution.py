@@ -18,9 +18,33 @@ depends on; with the paths gone there was nothing to intersect for the determini
 "show every claim materially dependent on a speculative assumption" -- the question the product
 exists to answer -- was unanswerable for the majority of beliefs.
 
-**The decision here is that a value in a run cannot exist without saying where it came from.**
-``ValueSource.path`` is required, not optional. A literal with no declared origin is exactly the
-silently-fitted constant ADR-001 rule 6 forbids, so the type refuses to express one.
+**The decision here is that a value lowered as a stage binding cannot exist without saying where
+it came from.** ``ValueSource.path`` is required, not optional. A literal with no declared origin
+is exactly the silently-fitted constant ADR-001 rule 6 forbids, so the type refuses to express
+one.
+
+**That sentence is deliberately narrower than "a number cannot enter a run unattributed", which
+would be false.** Two other routes carry numbers into a run and neither is closed here:
+
+  * ``ArtifactSource`` cites a ``DataArtifact`` by digest, and a data artifact may contain any
+    number of physical quantities with no topology paths attached. A planner could put forty
+    deterministic parameters into one artifact and bind it as a single input. The artifact is
+    hashed, so the values are *fixed and auditable*, but they are not *attributed* -- nothing
+    says which ``ParameterDecl`` each came from. Closing this needs a schema for ``DataArtifact``
+    content, which no record has written.
+  * ``config_ref`` is the larger hole and is **structural, not an oversight**. ADR-003 makes a
+    provider's config document opaque per dialect and commits FarSight to never reading it
+    physically; ADR-018 restates that. So a link-chain config can carry a detector dark-count
+    rate that moves the answer, and no validator here or anywhere may look inside to find it. No
+    change to this module can close it without contradicting an accepted record.
+
+The check that actually bounds both is ADR-017 decision 5's binding completeness -- every
+``ParameterDecl`` under an active subtree must be bound exactly once -- which turns "a quantity
+lives in an opaque blob" into "a quantity that should have been a declared parameter is missing
+from the design". That check needs a ``SystemTopology`` and is listed in
+:meth:`RunSpec.unenforced_rules`. Until it runs, this module makes lineage *complete for the
+values it lowers* and says nothing about values that arrive by the other two routes. Claiming
+otherwise would be the same class of overstatement the product exists to prevent.
 
 ``origin`` is the second half, and it is what a bare ``path`` cannot do:
 
@@ -88,19 +112,31 @@ __all__ = [
 #   epistemic_point     an outer-scan coordinate: an interval vertex or a set member (ADR-004)
 #   unknown_sweep_point a point from an Unknown's DECLARED sweep (ADR-004); the evidence package
 #                       stamps these NOT FITTED, and that stamp needs this to be distinguishable
+#   unknown_bounded     an Unknown discharged by a named bounding assumption (ADR-004). This is
+#                       the SECOND of the two legal resolutions -- `Unknown.freeze_ready` returns
+#                       True for a sweep declaration OR a bounding assumption -- and omitting it
+#                       would make a legal frozen design impossible to lower, which is a worse
+#                       failure than the one the omission was guarding against.
 #   collapse            the chosen value of a human-authorized EpistemicCollapse (ADR-004)
 #
-# There is deliberately NO member for a value assigned to an Unknown that declared no sweep and
-# no bounding assumption, and none for a literal with no parameter behind it at all. Those are
-# AT-6 and ADR-001 rule 6 respectively, and both are enforced here by the absence of a way to
-# say them -- the same technique as ADR-018's own missing `run_output` member and ADR-006's
-# golden attestation, which has no `farsight_output` enum member.
+# There is deliberately NO member for a value assigned to an Unknown that declared NEITHER a
+# sweep nor a bounding assumption (AT-6), and none for a literal with no parameter behind it at
+# all (ADR-001 rule 6). Both are enforced by the absence of a way to say them -- the technique of
+# ADR-018's own missing `run_output` member and ADR-006's golden attestation, which has no
+# `farsight_output` enum member.
+#
+# A collapse whose `chosen` is `Aleatory` (ADR-004 types it `Deterministic | Aleatory`) lowers
+# the DRAWN value as `aleatory_draw`, not as `collapse`: what reached the engine is a draw, and
+# `collapse` names a value the collapse fixed directly. Nothing is lost, because taint is
+# recomputed from the scope-path intersection and the register, never from this field -- which is
+# ADR-004's rule that the recomputation, not a stored marker, is the authority.
 ValueOrigin = Literal[
     "deterministic",
     "derived",
     "aleatory_draw",
     "epistemic_point",
     "unknown_sweep_point",
+    "unknown_bounded",
     "collapse",
 ]
 
@@ -419,6 +455,13 @@ class RunSpec(VersionedDocument):
             "rule 5: a ConditionSchedule predicate over an engine channel requires that provider "
             "to declare supports_stepping -- needs schemas/faults.py and the engine capability "
             "registry",
+            "binding completeness (ADR-017 decision 5): every ParameterDecl under an active "
+            "subtree is bound exactly once, and no value arrives by a route that skips a "
+            "declaration -- needs schemas/knowledge.py. This is the check that bounds the "
+            "ArtifactSource and config_ref gaps described in the module docstring",
+            "origin agreement: each ValueSource's declared origin and magnitude match the belief "
+            "actually bound at its path in the frozen design -- needs schemas/design.py. Until "
+            "it runs, an origin is a planner assertion this schema records but does not prove",
         ]
 
 
