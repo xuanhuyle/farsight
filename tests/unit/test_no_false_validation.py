@@ -72,6 +72,41 @@ def test_no_false_validation_claims():
     )
 
 
+def test_implementation_deviations_ledger_is_structured_and_points_at_real_files():
+    """ADR-000 forbids editing an accepted record, so a departure between code and ADR has
+    nowhere to live until a superseding record is written. The ledger is that place, and it is
+    only worth having if its entries stay true: an entry naming a file that no longer exists is
+    the same staleness liability ADR-000's Consequences section warns about, one level down.
+    """
+    p = REPO / "docs" / "adr" / "IMPLEMENTATION_DEVIATIONS.md"
+    assert p.exists(), "docs/adr/IMPLEMENTATION_DEVIATIONS.md is where ADR/code drift is recorded"
+    text = p.read_text(encoding="utf-8")
+    entries = re.split(r"^## ", text, flags=re.M)[1:]
+    assert entries, "the deviations ledger must contain at least one entry"
+
+    required = ["**Record:**", "**Code:**", "**What differs.**", "**Why.**",
+                "**Closes by:**", "**Status:**"]
+    for entry in entries:
+        title = entry.splitlines()[0].strip()
+        for field in required:
+            assert field in entry, f"deviation entry {title!r} is missing {field}"
+
+        # Every source file an entry blames must exist, or the entry describes a world that
+        # has moved on.
+        for line in entry.splitlines():
+            if line.startswith("**Code:**"):
+                for ref in re.findall(r"`([^`]+)`", line):
+                    if "/" in ref:
+                        assert (REPO / ref).exists(), (
+                            f"deviation entry {title!r} names {ref!r}, which does not exist"
+                        )
+        # Same for the record it cites, which is a link relative to docs/adr/.
+        for target in re.findall(r"\]\((ADR-[^)]+\.md)\)", entry):
+            assert (REPO / "docs" / "adr" / target).exists(), (
+                f"deviation entry {title!r} links {target!r}, which does not exist"
+            )
+
+
 def test_expert_review_backlog_exists_and_is_structured():
     p = REPO / "EXPERT_REVIEW_BACKLOG.md"
     assert p.exists(), "EXPERT_REVIEW_BACKLOG.md is mandatory (ADR-030 decision 6)"

@@ -17,12 +17,17 @@ from pydantic import BaseModel, ValidationError
 from farsight.hashing.canonical import canonicalize, content_hash
 from farsight.schemas.common import (
     DECIMAL_RE,
+    FrozenModel,
     IntervalQ,
+    MAX_PATH_CHARS,
+    MAX_PATH_SEGMENTS,
     Quantity,
     Ref,
     TimeSpanQ,
     ValidityEnvelope,
+    VersionedDocument,
     is_ref,
+    validate_path,
     normalize_decimal,
 )
 
@@ -211,3 +216,97 @@ def test_ref_accepts_a_bare_lowercase_digest():
 def test_normalize_decimal_rejects_bool():
     with pytest.raises(ValueError):
         normalize_decimal(True)
+
+
+# --------------------------------------------------------------------------------------
+# Copy is construction (ADR-001: a content address is the address of a validated document)
+# --------------------------------------------------------------------------------------
+
+
+class _Small(FrozenModel):
+    value: Quantity
+
+
+def test_model_copy_runs_validators_on_every_frozen_model():
+    """Not a Belief-specific repair. `model_copy(update=...)` is inherited by every hashed
+    object in the system, and every one of them can be content-addressed, so the fix belongs on
+    the base class rather than at the call sites anyone remembers."""
+    m = _Small(value=Quantity(magnitude="0.22", unit="m"))
+    with pytest.raises(ValidationError):
+        m.model_copy(update={"value": 0.22})  # a float, which Quantity refuses
+    with pytest.raises(ValidationError):
+        m.model_copy(update={"value": "0.22"})  # a bare string where a Quantity belongs
+    with pytest.raises(ValidationError):
+        m.model_copy(update={"unexpected": 1})  # extra="forbid" applies to copies too
+
+    assert m.model_copy().value == m.value  # no update: unchanged, and still cheap
+    assert m.model_copy(update={"value": Quantity(magnitude="0.23", unit="m")}).value.magnitude == "0.23"
+
+
+def test_versioned_document_carries_a_version_and_plain_models_do_not():
+    class _Doc(VersionedDocument):
+        pass
+
+    assert _Doc().schema_version == 1
+    assert "schema_version" not in _Small(value=Quantity(magnitude="1", unit="m")).model_dump()
+
+
+# --------------------------------------------------------------------------------------
+# The topology path grammar (ADR-017 decision 3)
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "good",
+    [
+        "link",
+        "link_margin",
+        "ground.palomar.receiver.optical_train",
+        "a.b.c.d.e.f.g",  # exactly at the 7-segment cap
+    ],
+)
+def test_path_grammar_accepts_well_formed_paths(good):
+    assert validate_path(good) == good
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "Ground.Palomar",  # uppercase: filename collision on Windows, not on Linux
+        "ground..palomar",  # empty segment
+        ".ground",  # leading separator
+        "ground.",  # trailing separator
+        "ground.palomar_",  # trailing underscore
+        "ground.pal__omar",  # doubled underscore
+        "ground-station.rx",  # hyphen
+        "a.b.c.d.e.f.g.h",  # over the segment cap
+        "",
+    ],
+)
+def test_path_grammar_refuses_malformed_paths(bad):
+    with pytest.raises(ValueError):
+        validate_path(bad)
+
+
+def test_path_caps_are_enforced_by_length_not_only_by_shape():
+    assert len("a" * MAX_PATH_CHARS) == MAX_PATH_CHARS
+    with pytest.raises(ValueError, match="over the"):
+        validate_path("a" * (MAX_PATH_CHARS + 1))
+    with pytest.raises(ValueError, match="segments"):
+        validate_path(".".join(["ab"] * (MAX_PATH_SEGMENTS + 1)))
+
+
+def test_path_sort_is_byte_wise_over_the_whole_string():
+    """ADR-017 decision 3: '.' (0x2E) sorts before digits and before '_' (0x5F), so `link`
+    precedes `link.margin` precedes `link_x`. Arbitrary, but fixed -- and ADR-005 draws every
+    aleatory value in this order, so the sort *is* the drawn values."""
+    assert sorted(["link_x", "link.margin", "link"]) == ["link", "link.margin", "link_x"]
+
+
+def test_decimal_below_the_fixed_point_floor_is_refused_naming_the_renderer():
+    """The grammar itself has no exponent floor; this renderer does, because Python's fallback
+    emits an uppercase "1E-31". The refusal has to say that, or the next reader edits the
+    grammar to fix a problem the grammar does not have."""
+    with pytest.raises(ValueError, match="fixed-point floor"):
+        Quantity(magnitude=Decimal("1e-31"), unit="m")
+    assert Quantity(magnitude=Decimal("1e-30"), unit="m").magnitude.startswith("0.000")

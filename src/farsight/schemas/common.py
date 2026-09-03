@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 __all__ = [
     "FrozenModel",
+    "VersionedDocument",
     "Quantity",
     "IntervalQ",
     "TimeSpanQ",
@@ -31,8 +32,10 @@ __all__ = [
     "Ref",
     "DECIMAL_RE",
     "SEGMENT_RE",
+    "PATH_RE",
     "is_ref",
     "normalize_decimal",
+    "validate_path",
 ]
 
 # ADR-001 rule 2. Exact, and validated rather than described:
@@ -49,12 +52,65 @@ DECIMAL_RE = re.compile(r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:e[+-][0-9]+)?$")
 # no doubled underscore, at most 32 characters.
 SEGMENT_RE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*$")
 
+# Length bounds, named rather than inlined so that drift from the ADR that sets each one is
+# visible in a diff. Every one of these is a threshold, and ADR-009 forbids exactly this
+# pattern one layer up in metrics; the schema layer should not be sloppier than the layer it
+# polices. Each constant cites the record that fixes its value.
+MAX_SEGMENT_CHARS = 32          # ADR-017 rule 3
+MAX_CONDITION_CHARS = 400       # this record: an envelope condition is one checkable sentence
+MIN_RATIONALE_CHARS = 40        # ADR-004: an epistemic bound states where its bound came from
+MIN_UNKNOWN_STATEMENT_CHARS = 20  # ADR-004: what_is_missing lands in the unknown register
+MIN_JUSTIFICATION_CHARS = 120   # ADR-004 EpistemicCollapse.justification, validator-enforced
+
+# `normalize_decimal` renders a Decimal fixed-point at or above this exponent and refuses
+# below it, because Python's `str()` fall-through emits an uppercase "1E-31" that the decimal
+# grammar rejects. Named so the refusal can name the renderer rather than blaming the grammar.
+MIN_FIXED_POINT_EXPONENT = -30
+
+# ADR-017 decision 3: one grammar for node paths, parameter paths and channel paths.
+#   path := segment ( "." segment )*
+# At most 6 node segments plus at most one leaf, so 7 in all; 64 characters total. The caps are
+# a filename budget, not taste (ADR-020 turns channel paths into filenames under the legacy
+# Windows 260-character limit).
+#
+# Reproduced here for the same reason as SEGMENT_RE: ``schemas`` is a leaf package, and fields
+# in hashed documents need the grammar before ``knowledge.py`` exists. This module owns the
+# *grammar* only. Whether a path resolves to a real declaration is a question about a specific
+# topology, and ``resolve(topology, path)`` in ADR-017 remains the sole authority on that.
+PATH_RE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*(?:\.[a-z0-9]+(?:_[a-z0-9]+)*)*$")
+MAX_PATH_SEGMENTS = 7  # ADR-017 decision 3: 6 node segments plus at most one leaf
+MAX_PATH_CHARS = 64  # ADR-017 decision 3
+
 _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def is_ref(s: str) -> bool:
     """True when ``s`` is a bare lowercase 64-hex content address (ADR-001 rule 7)."""
     return bool(_HEX64_RE.match(s))
+
+
+def validate_path(s: str) -> str:
+    """Return ``s`` when it is a well-formed topology path, or raise ``ValueError``.
+
+    Grammar only. A path that is syntactically fine may still name nothing, and the refusal for
+    that lives where a topology is in hand.
+    """
+    if not PATH_RE.match(s):
+        raise ValueError(
+            f"topology path {s!r} is outside the ADR-017 grammar: lowercase ASCII segments "
+            f"joined by '.', digits and single underscores, no leading or trailing separator"
+        )
+    if len(s) > MAX_PATH_CHARS:
+        raise ValueError(f"topology path {s!r} is {len(s)} characters, over the {MAX_PATH_CHARS} cap")
+    segments = s.split(".")
+    if len(segments) > MAX_PATH_SEGMENTS:
+        raise ValueError(
+            f"topology path {s!r} has {len(segments)} segments, over the {MAX_PATH_SEGMENTS} cap"
+        )
+    for segment in segments:
+        if len(segment) > MAX_SEGMENT_CHARS:
+            raise ValueError(f"path segment {segment!r} is over the {MAX_SEGMENT_CHARS} cap")
+    return s
 
 
 def normalize_decimal(value: Any) -> str:
@@ -81,7 +137,15 @@ def normalize_decimal(value: Any) -> str:
     if isinstance(value, Decimal):
         if not value.is_finite():
             raise ValueError("magnitude must be finite (ADR-001 rule 3)")
-        text = format(value, "f") if value.as_tuple().exponent >= -30 else str(value)
+        exponent = value.as_tuple().exponent
+        if exponent < MIN_FIXED_POINT_EXPONENT:
+            raise ValueError(
+                f"Decimal {value!r} has exponent {exponent}, below this renderer's fixed-point "
+                f"floor of {MIN_FIXED_POINT_EXPONENT}. The grammar is not the problem: the "
+                f"scientific fall-through emits an uppercase exponent the grammar rejects. "
+                f"Pass the magnitude as a decimal string in the grammar instead."
+            )
+        text = format(value, "f")
         if not DECIMAL_RE.match(text):
             raise ValueError(f"Decimal {value!r} does not render into the decimal grammar")
         return text
@@ -102,9 +166,55 @@ class FrozenModel(BaseModel):
     ``extra="forbid"`` is not tidiness. A document carrying a field we do not understand would
     hash to something stable while meaning something we did not validate, which is exactly the
     kind of quiet disagreement content addressing is supposed to make impossible.
+
+    ``validate_default=True`` closes the matching hole underneath: Pydantic skips validators on
+    a default, so a field declared ``paths: list[str] = []`` would produce a document that
+    violates its own schema whenever the author omitted the field -- the validator that refuses
+    an empty list simply never runs. In a system whose first rule is that there are no
+    scientifically meaningful hidden defaults (ADR-001 rule 6), a default that is exempt from
+    the rules is the wrong shape of exemption.
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, validate_default=True
+    )
+
+    def model_copy(self, *, update: dict[str, Any] | None = None, deep: bool = False) -> Any:
+        """Copy with validation. Overridden because the inherited version has none.
+
+        Pydantic's ``model_copy(update=...)`` writes the update straight into the new instance
+        without running a single validator, so ``Deterministic.model_copy(update={"value":
+        "not-a-quantity"})`` yields a model whose ``value`` is a bare string -- and
+        :func:`farsight.hashing.canonical.content_hash` will mint a 64-hex address for it.
+
+        That breaks the sentence the whole system rests on: **a content address is the address
+        of a validated document.** ``frozen=True`` prevents attribute *assignment*, which is
+        what one might assume covers this; it does not prevent construction of an invalid copy,
+        and construction is what identity depends on.
+
+        Routing updates back through ``model_validate`` closes it everywhere at once, rather
+        than at the call sites we happen to remember -- and it catches unknown field names too,
+        which the inherited version silently accepts despite ``extra="forbid"``.
+        """
+        if update:
+            return type(self).model_validate({**self.__dict__, **update})
+        return super().model_copy(deep=deep)
+
+
+class VersionedDocument(FrozenModel):
+    """A top-level persisted object: one that is written to disk and content-addressed alone.
+
+    Carries ``schema_version`` so the *bytes* say which schema generation produced them. A
+    reader in five years verifying an archived package has no other in-band way to know, and
+    ADR-005 already requires ``verify`` to exit nonzero on a version it does not recognise.
+
+    Deliberately not on :class:`FrozenModel`: value objects like :class:`Quantity` are nested
+    inside documents and versioned by their container, so putting a version on every one of
+    them would bloat every hashed document without telling a reader anything new. The envelope
+    in ADR-001 decision 4 carries the version at document level, which is this class.
+    """
+
+    schema_version: int = 1
 
 
 class Quantity(FrozenModel):
@@ -203,10 +313,10 @@ class ValidityEnvelope(FrozenModel):
         for line in v:
             if not line.strip():
                 raise ValueError("an envelope condition may not be blank")
-            if len(line) > 400:
+            if len(line) > MAX_CONDITION_CHARS:
                 raise ValueError(
-                    "an envelope condition is one sentence a reviewer can check; "
-                    f"{len(line)} characters is a paragraph"
+                    f"an envelope condition is one sentence a reviewer can check; "
+                    f"{len(line)} characters exceeds {MAX_CONDITION_CHARS} and is a paragraph"
                 )
         return v
 
