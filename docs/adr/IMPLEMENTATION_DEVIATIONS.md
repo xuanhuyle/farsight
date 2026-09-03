@@ -134,6 +134,11 @@ default. This is finding D1: two accepted records contradict, and the contradict
 wording difference — ADR-026's freeze validator quantifies over a field that does not exist, so
 it could never have been written. "Which model produced this number" had no answer.
 
+**Why.** The edge is the only thing that answers "which model produced this number", and ADR-026
+Enforcement 3 already depends on it existing. Adding the field is what makes an accepted
+validator writable rather than aspirational; leaving it out keeps two accepted records in
+contradiction with each other.
+
 **Why a list of objects rather than a `model_ref` digest.** Plural because ADR-026's own wording
 is "every `StageSpec` naming that model" and one stage legitimately runs several — the DSOC link
 chain has an atmospheric model and a detector model, versioned independently. Objects rather than
