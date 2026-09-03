@@ -26,8 +26,10 @@ from farsight.schemas.execution import (
     GridRef,
     RunSpec,
     SpecCompositionError,
+    StageModel,
     StageSpec,
     ValueSource,
+    model_versions,
     parameter_paths,
     paths_reaching_stage,
     value_sources_for_path,
@@ -43,10 +45,12 @@ def vs(path: str, mag: str = "1", origin: str = "deterministic", **kw) -> ValueS
     return ValueSource(value=Quantity(magnitude=mag, unit="m"), path=path, origin=origin, **kw)
 
 
-def stage(stage_id, kind="geometry", bindings=None, emits=None, grid="pass_grid", provider="spice"):
+def stage(stage_id, kind="geometry", bindings=None, emits=None, grid="pass_grid",
+          provider="spice", models=None):
     return StageSpec(
         stage_id=stage_id, kind=kind, provider_id=provider, config_dialect=provider,
         config_ref=HEX, grid=GridRef(grid_id=grid), bindings=bindings or {}, emits=emits or [],
+        models=models or [],
     )
 
 
@@ -289,11 +293,12 @@ def test_unenforceable_rules_are_declared_rather_than_silently_skipped():
     """Two of the six rules need types that do not exist yet. A deferred check that says nothing
     is indistinguishable from a check that passed, which is the failure C4 was about."""
     rules = dsoc_run().unenforced_rules()
-    assert len(rules) == 4
+    assert len(rules) == 5
     assert any("SystemTopology" in r for r in rules)
     assert any("supports_stepping" in r for r in rules)
     assert any("binding completeness" in r for r in rules)
     assert any("origin agreement" in r for r in rules)
+    assert any("model_binding_consistent" in r for r in rules)
 
 
 # --------------------------------------------------------------------------------------
@@ -396,3 +401,101 @@ def test_the_module_does_not_claim_lineage_it_cannot_deliver():
     # An artifact-bound stage contributes no paths, and the query says so rather than guessing.
     assert parameter_paths(run) == frozenset()
     assert any("binding completeness" in r for r in run.unenforced_rules())
+
+
+# --------------------------------------------------------------------------------------
+# D1: the Model -> Run edge (ADR-026 quantified over a StageSpec field ADR-018 never defined)
+# --------------------------------------------------------------------------------------
+
+MODEL_A = "1" * 64
+MODEL_B = "2" * 64
+PROP_MODEL_PATH = "flight.link.propagation_model"
+
+
+def test_a_stage_names_the_model_versions_it_runs():
+    """ADR-026's model_binding_consistent is written against "every StageSpec naming that
+    model", and ADR-026's own Related-ADRs line says "a stage names the model it runs" -- but
+    ADR-018's StageSpec had eight fields and none of them named a ModelVersion. The validator
+    quantified over something unwritable."""
+    run = RunSpec(experiment_hash=HEX, run_index=0, stages=[stage(
+        "link", kind="engine", provider="linkchain",
+        models=[StageModel(model_version_ref=MODEL_A, path=None),
+                StageModel(model_version_ref=MODEL_B, path=None)],
+    )])
+    assert model_versions(run) == {MODEL_A, MODEL_B}
+
+
+def test_a_stage_must_state_its_models_even_when_there_are_none():
+    """Required with no default. An empty list is an assertion -- this stage runs no separately
+    identified model version, which is true of a SPICE geometry stage -- and a `= None` default
+    would make that indistinguishable from a field nobody reached."""
+    with pytest.raises(ValidationError):
+        StageSpec(stage_id="s", kind="geometry", provider_id="spice", config_dialect="spice",
+                  config_ref=HEX, grid=GridRef(grid_id="g"), bindings={}, emits=[])
+    assert stage("s").models == []
+    assert model_versions(RunSpec(experiment_hash=HEX, run_index=0,
+                                  stages=[stage("s")])) == frozenset()
+
+
+def test_a_model_family_coordinate_keeps_its_path():
+    """The reason this is not just a bare digest. A model family is enumerated as
+    EpistemicSet.members: list[ModelVersionRef] (ADR-004), so which model runs can be an
+    epistemic coordinate. It cannot lower through ValueSource, whose value is a Quantity and
+    cannot hold a digest -- so without a path here it would be exactly the unattributed value
+    G1 was about, for a different value type."""
+    run = RunSpec(experiment_hash=HEX, run_index=0, stages=[stage(
+        "link", kind="engine", provider="linkchain",
+        models=[StageModel(model_version_ref=MODEL_A, path=PROP_MODEL_PATH)],
+    )])
+    assert PROP_MODEL_PATH in parameter_paths(run)
+    assert PROP_MODEL_PATH in paths_reaching_stage(run, "link")
+
+    # And the question that motivates all of it: does this verdict depend on that choice?
+    scope = CollapseScope(experiment_hash=HEX, parameter_paths=[PROP_MODEL_PATH])
+    assert scope.covers(parameter_paths(run)) == {PROP_MODEL_PATH}
+
+
+def test_a_fixed_model_contributes_no_path():
+    """None means the design fixed this model, not that a parameter chose it. That is a
+    different claim and must not appear as a parameter dependency."""
+    run = RunSpec(experiment_hash=HEX, run_index=0, stages=[stage(
+        "link", kind="engine", models=[StageModel(model_version_ref=MODEL_A, path=None)],
+    )])
+    assert parameter_paths(run) == frozenset()
+    assert model_versions(run) == {MODEL_A}
+
+
+def test_a_path_cannot_be_both_a_value_and_a_model_selection():
+    """ADR-017 decision 4: a path may be bound exactly once by exactly one route, and two routes
+    claiming one path is a freeze failure naming the path. Model selection is the second
+    lowering site, so the rule has to span both."""
+    with pytest.raises(SpecCompositionError, match="both as a value and as a model selection"):
+        RunSpec(experiment_hash=HEX, run_index=0, stages=[
+            stage("geo", bindings={"x": vs(PROP_MODEL_PATH, "1")}),
+            stage("link", kind="engine",
+                  models=[StageModel(model_version_ref=MODEL_A, path=PROP_MODEL_PATH)]),
+        ])
+
+
+def test_model_lists_are_sorted_and_a_model_is_named_once():
+    with pytest.raises(ValidationError, match="same ModelVersion twice"):
+        stage("s", models=[StageModel(model_version_ref=MODEL_A, path=None),
+                           StageModel(model_version_ref=MODEL_A, path=None)])
+    with pytest.raises(ValidationError, match="sorted"):
+        stage("s", models=[StageModel(model_version_ref=MODEL_B, path=None),
+                           StageModel(model_version_ref=MODEL_A, path=None)])
+
+
+def test_a_model_selection_path_obeys_the_topology_grammar():
+    with pytest.raises(ValidationError, match="ADR-017 grammar"):
+        StageModel(model_version_ref=MODEL_A, path="Flight.Link")
+
+
+def test_the_model_edge_is_part_of_run_identity():
+    """Two runs differing only in which model version ran must be different documents, or
+    "which model produced this number" has two answers with one hash."""
+    a = RunSpec(experiment_hash=HEX, run_index=0, stages=[stage(
+        "link", kind="engine", models=[StageModel(model_version_ref=MODEL_A, path=None)])])
+    b = RunSpec(experiment_hash=HEX, run_index=0, stages=[stage(
+        "link", kind="engine", models=[StageModel(model_version_ref=MODEL_B, path=None)])])
+    assert content_hash(a.model_dump(mode="json")) != content_hash(b.model_dump(mode="json"))

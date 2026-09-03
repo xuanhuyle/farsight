@@ -93,9 +93,11 @@ __all__ = [
     "ArtifactSource",
     "ValueSource",
     "StageInput",
+    "StageModel",
     "StageSpec",
     "RunSpec",
     "STAGE_INPUT_MEMBERS",
+    "model_versions",
     "parameter_paths",
     "paths_reaching_stage",
     "value_sources_for_path",
@@ -265,12 +267,57 @@ StageInput = Annotated[
 STAGE_INPUT_MEMBERS = (ChannelSource, ArtifactSource, ValueSource)
 
 
+class StageModel(FrozenModel):
+    """A ``ModelVersion`` this stage runs, and how it came to be the one running.
+
+    The Model to Run edge (finding D1). ADR-026's freeze validator
+    ``model_binding_consistent`` is written against "every ``StageSpec`` (ADR-018) naming that
+    model", and ADR-026's Related-ADRs line says "a stage names the model it runs" -- but
+    ADR-018's ``StageSpec`` has eight fields and none of them names a ``ModelVersion``. The edge
+    existed in prose in two accepted records and in no field, so the validator quantified over
+    something unwritable and "which model produced this number" had no answer.
+
+    ``path`` is what stops this from re-opening G1 for a different value type. A model *family*
+    is enumerated as ``EpistemicSet.members: list[ModelVersionRef]`` (ADR-004) -- "the
+    atmospheric law is Kolmogorov or it is von Karman, and we do not know which" -- so which
+    model runs can itself be an epistemic coordinate that the outer scan varies. That choice
+    cannot lower through :class:`ValueSource`, whose ``value`` is a ``Quantity`` and cannot hold
+    a digest. So this is the lowering site for it, and without a path a model-family coordinate
+    would be exactly the unattributed value G1 was about.
+
+    ``path`` is required and explicitly nullable, which is a different thing from optional.
+    ``None`` is an authored statement -- *this stage runs this model because the design says so,
+    not because a parameter selected it* -- and the author has to write it. A ``= None`` default
+    would make "fixed by the design" and "nobody filled this in" the same document, which is the
+    hidden-default shape ADR-001 rule 6 forbids.
+    """
+
+    model_version_ref: Ref
+    path: str | None
+
+    @field_validator("path")
+    @classmethod
+    def _check_path(cls, v: str | None) -> str | None:
+        return v if v is None else validate_path(v)
+
+
 class StageSpec(FrozenModel):
     """One stage of a run: a geometry provider or an engine, with its bindings.
 
     ``bindings`` maps a **provider-dialect** parameter name to its source. That dict key is the
     engine's own vocabulary, which is exactly why ``ValueSource.path`` has to exist: the key
     says what the engine calls the number, and only the path says what FarSight calls it.
+
+    ``models`` is required and may be empty. Empty is an assertion -- *this stage runs no
+    separately identified model version* -- and it is true of a SPICE geometry stage, whose
+    ephemerides are data (ADR-016 ``KernelRef``) rather than a modelled thing. Because the field
+    has no default, writing ``[]`` is a statement an author made rather than a field nobody
+    reached, which is the distinction ADR-007 already draws for registers: an empty register is
+    an assertion, a missing register is a verification failure.
+
+    Plural, not the ``model_ref`` singular the review sketched: ADR-026's validator says "every
+    `StageSpec` naming that model", and one stage legitimately runs several -- the DSOC link
+    chain has an atmospheric model and a detector model, and they version independently.
     """
 
     stage_id: str
@@ -281,6 +328,25 @@ class StageSpec(FrozenModel):
     grid: GridRef
     bindings: dict[str, StageInput]
     emits: list[str]
+    models: list[StageModel]
+
+    @field_validator("models")
+    @classmethod
+    def _check_models(cls, v: list[StageModel]) -> list[StageModel]:
+        refs = [m.model_version_ref for m in v]
+        if len(set(refs)) != len(refs):
+            raise ValueError(
+                f"stage names the same ModelVersion twice: "
+                f"{sorted({r for r in refs if refs.count(r) > 1})}. A stage runs a model or it "
+                f"does not; naming it twice is the document disagreeing with itself about how "
+                f"many models there are."
+            )
+        if refs != sorted(refs):
+            raise ValueError(
+                "models must be byte-wise sorted by model_version_ref, so that two stages "
+                "running the same models are the same document and hash alike"
+            )
+        return v
 
     @field_validator("stage_id")
     @classmethod
@@ -313,6 +379,10 @@ class StageSpec(FrozenModel):
     def value_sources(self) -> list[ValueSource]:
         """Every literal bound into this stage, in binding-key order."""
         return [b for _, b in sorted(self.bindings.items()) if isinstance(b, ValueSource)]
+
+    def selection_paths(self) -> frozenset[str]:
+        """Paths whose bound parameter selected one of this stage's model versions."""
+        return frozenset(m.path for m in self.models if m.path is not None)
 
 
 class RunSpec(VersionedDocument):
@@ -429,6 +499,29 @@ class RunSpec(VersionedDocument):
                     f"(ADR-027). Two unqualified values at one path is the run disagreeing with "
                     f"itself about what the parameter is."
                 )
+
+        # D1: a model selection is the second lowering site, so the "bound exactly once" rule
+        # (ADR-017 decision 4) has to span both. A path that is a value in one stage and a model
+        # choice in another is two routes claiming one parameter, which that record makes a
+        # freeze failure naming the path.
+        model_paths: dict[str, list[str]] = {}
+        for stage in stages:
+            for model in stage.models:
+                if model.path is not None:
+                    model_paths.setdefault(model.path, []).append(stage.stage_id)
+        for path, owners in sorted(model_paths.items()):
+            if path in by_path:
+                raise SpecCompositionError(
+                    f"path {path!r} is bound both as a value and as a model selection "
+                    f"(stages {sorted(owners)}). A path may be bound exactly once by exactly "
+                    f"one route (ADR-017 decision 4); two routes claiming one path is a freeze "
+                    f"failure naming the path."
+                )
+            if len(set(owners)) != len(owners):
+                raise SpecCompositionError(
+                    f"path {path!r} selects more than one model within a single stage "
+                    f"({sorted(owners)}). One parameter names one model version per run."
+                )
         return self
 
     def engine_id(self) -> str | None:
@@ -459,6 +552,10 @@ class RunSpec(VersionedDocument):
             "subtree is bound exactly once, and no value arrives by a route that skips a "
             "declaration -- needs schemas/knowledge.py. This is the check that bounds the "
             "ArtifactSource and config_ref gaps described in the module docstring",
+            "model_binding_consistent (ADR-026): a ModelVersion with an engine_native binding "
+            "names an engine_id and a config_dialect, and every StageSpec naming it carries a "
+            "config_ref whose dialect matches -- needs schemas/knowledge.py. This schema "
+            "supplies the edge the validator quantifies over; it cannot yet resolve the digest",
             "origin agreement: each ValueSource's declared origin and magnitude match the belief "
             "actually bound at its path in the frozen design -- needs schemas/design.py. Until "
             "it runs, an origin is a planner assertion this schema records but does not prove",
@@ -492,9 +589,12 @@ def parameter_paths(spec: RunSpec) -> frozenset[str]:
     external auditor, which is the failure G1 was about, one level up. Recorded in
     ``docs/adr/IMPLEMENTATION_DEVIATIONS.md`` DEV-6 rather than left as a comment nobody reads.
     """
-    return frozenset(
-        v.path for stage in spec.stages for v in stage.value_sources()
-    )
+    paths = {v.path for stage in spec.stages for v in stage.value_sources()}
+    # A model-family choice is a bound parameter too (ADR-004 enumerates ModelVersionRefs as an
+    # EpistemicSet), so leaving it out would answer "which parameters does this run depend on"
+    # while omitting the one that decides which physics ran.
+    paths.update(p for stage in spec.stages for p in stage.selection_paths())
+    return frozenset(paths)
 
 
 def paths_reaching_stage(spec: RunSpec, stage_id: str) -> frozenset[str]:
@@ -542,10 +642,21 @@ def paths_reaching_stage(spec: RunSpec, stage_id: str) -> frozenset[str]:
         visited.add(current)
         stage = by_id[current]
         reached.update(v.path for v in stage.value_sources())
+        reached.update(stage.selection_paths())
         for source in stage.bindings.values():
             if isinstance(source, ChannelSource):
                 pending.append(source.from_stage)
     return frozenset(reached)
+
+
+def model_versions(spec: RunSpec) -> frozenset[str]:
+    """Every ``ModelVersion`` digest this run runs, across all stages.
+
+    The Model to Run edge read in the direction an auditor asks it: *which models produced this
+    number*. ADR-026 decision 6 requires a package to ship every referenced ``ModelVersion``
+    object, and this is what enumerates them for a run.
+    """
+    return frozenset(m.model_version_ref for stage in spec.stages for m in stage.models)
 
 
 def value_sources_for_path(spec: RunSpec, path: str) -> list[ValueSource]:

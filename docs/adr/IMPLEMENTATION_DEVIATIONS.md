@@ -121,6 +121,63 @@ subtree form that expands to explicit paths at freeze — the same materialize-a
 
 ---
 
+## DEV-7 — `StageSpec.models`: the Model-to-Run edge two records assumed and neither defined
+
+**Record:** [ADR-026](ADR-026-model-and-engine-build.md) Enforcement 3 (`model_binding_consistent`
+is written against "every `StageSpec` (ADR-018) naming that model") and its Related-ADRs line
+("ADR-018 — a stage names the model it runs"); [ADR-018](ADR-018-run-composition.md) sketches
+`StageSpec` with eight fields, none naming a `ModelVersion`
+**Code:** `src/farsight/schemas/execution.py` — `StageModel`, `StageSpec.models`, `model_versions`
+
+**What differs.** `StageSpec` gains a ninth field, `models: list[StageModel]`, required with no
+default. This is finding D1: two accepted records contradict, and the contradiction is not a
+wording difference — ADR-026's freeze validator quantifies over a field that does not exist, so
+it could never have been written. "Which model produced this number" had no answer.
+
+**Why a list of objects rather than a `model_ref` digest.** Plural because ADR-026's own wording
+is "every `StageSpec` naming that model" and one stage legitimately runs several — the DSOC link
+chain has an atmospheric model and a detector model, versioned independently. Objects rather than
+bare digests because of a case the review's one-line sketch does not reach: a model *family* is
+enumerated as `EpistemicSet.members: list[ModelVersionRef]` (ADR-004), so **which model runs can
+itself be an epistemic coordinate** that the outer scan varies. That choice cannot lower through
+`ValueSource`, whose `value` is a `Quantity` and cannot hold a digest. So this is the lowering
+site for it, and a bare digest here would re-open G1 for a different value type — a bound
+parameter reaching a run with nothing saying which parameter it was.
+
+`StageModel.path` is therefore required and **explicitly nullable**, which is not the same as
+optional. `None` is an authored statement — *this stage runs this model because the design says
+so, not because a parameter selected it* — and the author must write it. A `= None` default would
+make "fixed by the design" and "nobody filled this in" the same document, which is the
+hidden-default shape ADR-001 rule 6 forbids. The same reasoning makes `models` itself default-free:
+an empty list is the assertion *this stage runs no separately identified model version*, true of a
+SPICE geometry stage whose ephemerides are data (ADR-016 `KernelRef`) rather than a modelled
+thing. That is ADR-007's register rule applied one level down — an empty register is an
+assertion, a missing register is a verification failure.
+
+**What is enforced, and what is not.** Enforced here: model lists sorted and duplicate-free so two
+stages running the same models hash alike; selection paths in the ADR-017 grammar; model-selection
+paths included in `parameter_paths` and `paths_reaching_stage`, so a verdict's dependence on
+*which physics ran* is answerable; and ADR-017 decision 4's "bound exactly once by exactly one
+route" extended across both lowering sites, so a path cannot be a value in one stage and a model
+selection in another. **Not** enforced: `model_binding_consistent` itself — matching a
+`ModelVersion`'s `binding.engine_id` and `binding.config_dialect` against the stage's
+`provider_id` and `config_dialect` — because that requires resolving the digest and
+`schemas/knowledge.py` does not exist. This schema supplies the edge the validator quantifies
+over; the validator is listed by `RunSpec.unenforced_rules()` until it can run.
+
+**Consequence if this is the wrong call.** `spec_hash` moves again, for the same reason and with
+the same answer as DEV-6: nothing is frozen, and ADR-018's Option 3 already argues that this
+class of change is nearly free now and invalidates the Tier-A golden corpus later. If a stage
+turns out to need the same model twice under different roles, the uniqueness rule is what would
+have to give.
+
+**Closes by:** the superseding ADR-018 record, which the self-audit review already scopes as
+carrying `StageSpec.model_ref` and `ValueSource.path` together.
+
+**Status:** internally cross-checked. Not externally expert-reviewed.
+
+---
+
 ## DEV-6 — `ValueSource` carries the path and origin ADR-018 sketched it without
 
 **Record:** [ADR-018](ADR-018-run-composition.md) — `ValueSource` is sketched with two fields,
