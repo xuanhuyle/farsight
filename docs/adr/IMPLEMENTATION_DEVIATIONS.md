@@ -121,6 +121,85 @@ subtree form that expands to explicit paths at freeze — the same materialize-a
 
 ---
 
+## DEV-8 — `Source` and `Assumption` defined, and what they deliberately do not claim
+
+**Record:** [ADR-021](ADR-021-referent-semantics.md) (`Referent.source_refs  # Source objects, by
+digest`), [ADR-007](ADR-007-evidence-package-format.md) (the assumption register carries every
+`Assumption` "with pedigree and the objects that depend on it"), [ADR-004](ADR-004-uncertainty-belief-model.md)
+(`Pedigree.sources`, `Unknown.bounding_assumption_ref`), [ADR-026](ADR-026-model-and-engine-build.md)
+(`ModelVersion.source_refs` / `assumption_refs`)
+**Code:** `src/farsight/schemas/knowledge.py`
+
+**What differs.** Nothing is contradicted; two types that four accepted records reference and
+none defines are now defined. This is finding G2, and the review calls it verbatim the hazard
+ADR-026 was commissioned to close for `ModelVersionRef` — *the reference is live in a hashed
+document and its referent is undefined*.
+
+**Why.** Both take ADR-021's `Referent` shape — one content-addressed object, an authored `*_id`
+label, a monotone `revision`, `supersedes` plus a typed `revision_reason` — rather than ADR-026's
+two-object split. The split exists so a `ModelVersion` digest changing does not orphan its
+history, and its price is a parent carrying nothing that can affect a number. For `Assumption`
+that price buys nothing and costs something real: ADR-007 requires the register to carry each
+assumption **with pedigree**, and a parent stable enough to be worth splitting out is a parent
+with no pedigree on it.
+
+**What is deliberately NOT claimed: that FarSight detects two citations are the same paper.**
+ADR-001's own Consequences say deduplication is "syntactic, not semantic … and nothing in the
+system will point this out", and normalizing a citation into a comparison key is normalizing
+*value*, which the same record forbids validators from doing. So: identifiers are transcribed
+**verbatim** (hygiene only — one line, stripped), sameness is **declared** by an authored
+`supersedes` a human signs, and everything else is a named residue.
+
+There is deliberately **no freeze-time collision refusal on identifiers.** One was designed and
+then refuted by the flagship's own central source: DSN 810-005 is a numbered *series* whose
+modules are separately issued under one designation, so a key on the designation alone merges
+different documents and a refusal built on it rejects a legal document set.
+`SourceIdentifier.part` distinguishes them, and `Source.collision_keys()` reports keys for a
+validator one layer up to use — a signal, not a rule enforced where a false positive means a
+week-3 author disables the check and takes the mechanism with it.
+
+**Two closures worth naming.** A `Source` carries **no pedigree**: provenance has to terminate or
+it regresses forever, and who read a paper and how well is a property of the *reading*, which
+ADR-021 puts on `ReferentPoint.locator`. An `AssumptionBound` is **never a point**: if an
+assumption could carry one value, discharging an `Unknown` through
+`Unknown.bounding_assumption_ref` would hand it a concrete number — the silently-fitted default
+ADR-001 rule 6 forbids and AT-6 tests for. One-sided bounds carry an *absent* edge rather than an
+invented finite one, because "at most 0.5" with a fabricated lower edge of 0 is the same fitting
+under a different name.
+
+**Rejected as theater**, each proposed by a design and cut after critique: a constant
+`external_review` field on every register row (a value that never varies reads as information and
+is not); an `access` field that would be uniformly `full_text` because the honest value costs more
+to write; confidence scores and trust percentages; a forbidden-claim regex inside the schema layer
+(it is a lint, ADR-030 already has one, and the regex refused the honest negation); `scan_points`
+on the assumption (mission-specific data in a mission-independent object); and a `pessimistic_edge`
+no consumer reads.
+
+**Deferred, and named rather than implied.** The assumption register's reverse index —
+"the objects that depend on it" — cannot live on the `Assumption`, because ADR-001 forecloses
+in-place annotation and a `used_by` field would re-hash the assumption and every belief citing it
+whenever a dependent appeared. Its only legal home is a materialized row in
+`registers/assumptions.json`, recomputed by `verify` and refused on disagreement — the
+`draw_order` pattern. That register is ADR-007's document; `dependents_of()` is the pure forward
+walk this module can honestly provide. Also deferred: the freeze validator that anchors
+`Source.origin` against the package input closure, which needs ADR-021's `Referent` and ADR-007's
+package to exist.
+
+**A third instance of the same hazard, not fixed here.** `DataArtifact` is referenced by digest
+from `ArtifactSource.artifact_ref` (`execution.py`), `Referent.artifact_refs` and now
+`Source.artifact_refs`, appears in 26 places across the accepted records, and has no schema. The
+review named `Source` and `Assumption`; this one is the same shape and is recorded so it is found
+by reading rather than by an auditor failing. ADR-012 already sketches its fields.
+
+**Closes by:** an ADR defining these two objects, most naturally alongside `DataArtifact` and
+ADR-021's `Referent` when `knowledge.py` is completed.
+
+**Status:** internally cross-checked; the constraint set was assembled by reading the six binding
+records directly, and three independent designs were adversarially critiqued before this shape was
+chosen. Not externally expert-reviewed.
+
+---
+
 ## DEV-7 — `StageSpec.models`: the Model-to-Run edge two records assumed and neither defined
 
 **Record:** [ADR-026](ADR-026-model-and-engine-build.md) Enforcement 3 (`model_binding_consistent`
