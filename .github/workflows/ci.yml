@@ -23,6 +23,15 @@ jobs:
         run: python -m pytest tests/unit -q
       - name: import boundaries
         run: lint-imports
+      - name: console script resolves
+        # ADR-024: command names and exit codes are printed into shipped evidence packages, so
+        # the entry point is part of the contract. `pyproject.toml` declared
+        # `farsight = "farsight.cli.main:app"` against a module that did not exist for weeks; the
+        # installed script raised ModuleNotFoundError and nothing noticed, because CI ran pytest
+        # and lint-imports and never invoked the command it ships.
+        run: |
+          farsight --version
+          farsight --exit-codes
 
   no-network:
     # ADR-012: the truth loop makes zero network calls, ever. Proven by running the suite with

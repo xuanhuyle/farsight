@@ -121,6 +121,56 @@ subtree form that expands to explicit paths at freeze — the same materialize-a
 
 ---
 
+## DEV-10 — the units boundary is a package, not a `Quantity` method
+
+**Record:** [ADR-008](ADR-008-units-and-numerics.md) — the decision block sketches
+`Quantity.to_si()` as a method on the hashed wire form in `schemas/common.py`, "the one
+conversion point"
+**Code:** `src/farsight/units/__init__.py` — `to_si`, `from_si`, `encode_float`, `convert`
+
+**What differs.** Placement only. The conversion point is a function in `farsight.units` rather
+than a method on `Quantity`; the semantics — convert once, at the boundary, and let the numeric
+core see raw SI float64 — are exactly the record's.
+
+**Why.** `schemas` is a leaf package under the `schemas_is_leaf` contract, and `common.py`'s own
+docstring already made this call before this work started: "the conversion boundary lives in
+`farsight.units`, not here, because this package is a leaf and may not import a unit library."
+ADR-008's own Enforcement 2 permits astropy in `farsight.schemas`, so the record does not forbid
+the method — but a module-level astropy import in `common.py` would pull astropy into every
+worker process spawn, and ADR-002's spawn-floor measurement (still unrun) is what should decide
+that, not a docstring.
+
+**What this closes that was open.** ADR-008 Enforcement 2 names the forbidden source set exactly:
+`farsight.engines`, `farsight.metrics`, `farsight.uncertainty` and `farsight.hashing`, permitted
+in `farsight.schemas`, `farsight.units` and `farsight.analysis` only. The shipped `.importlinter`
+named only `farsight.metrics` and `farsight.engines.linkchain` — so `farsight.engines.spice` was
+unguarded, which is precisely where ADR-015 decision 7's independence claim lives: the SPICE time
+path and the astropy time path are cross-checked, never collapsed into one call. The contract now
+matches the record, and it was verified to bite by feeding a synthetic `import astropy` into both
+`hashing` and `engines`, neither of which it previously covered.
+
+**A property the record does not state, found by testing and worth recording.** Conversion through
+SI is **not bit-reversible**. `to_si` narrows to float64 because that is what the core computes
+in, and no care in the other direction undoes that rounding: a Hypothesis property found
+`5749259923628352.0 km` returning as `5749259923628351.0 km` within seconds. Because a magnitude
+is hashed, a value authored in km, converted to SI and re-encoded in km can produce a different
+`spec_hash`. The rule that follows — and it is now in the module docstring rather than folklore —
+is that **values are encoded once, in the unit they were authored or drawn in**; ADR-022's
+encoding rule applies to a machine-produced float already in its target unit, and `convert` is for
+reading rather than for re-minting a hashed magnitude.
+
+**Consequence if this is the wrong call.** If the spawn-floor measurement shows astropy's import
+cost is not the dominant term, `Quantity.to_si()` could be added as a thin delegation to this
+module without moving anything. The reverse — starting with the method and discovering the import
+cost — would mean unwinding a module-level import from the bottom of the schema stack.
+
+**Closes by:** a superseding ADR-008 stating the boundary as a package, or the spawn-floor
+measurement showing the method form is affordable.
+
+**Status:** internally cross-checked. Not externally expert-reviewed.
+
+---
+
 ## DEV-9 — `Claim` promoted to an object, and the honest limit of what containment proves
 
 **Record:** [ADR-007](ADR-007-evidence-package-format.md) decision 3 — "The claim statement is a

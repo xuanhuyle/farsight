@@ -89,12 +89,20 @@ forbidden_modules =
 ; raw SI float64. A unit library in an inner loop is a 20-100x tax and a correctness illusion.
 name = no unit library in the numeric core
 type = forbidden
+; ADR-008 Enforcement 2 names the source set exactly: farsight.engines, farsight.metrics,
+; farsight.uncertainty and farsight.hashing, permitted in farsight.schemas, farsight.units and
+; farsight.analysis only. The contract shipped naming just `metrics` and `engines.linkchain`,
+; which left `engines.spice` unguarded -- and that is the module where ADR-015 decision 7's
+; whole point lives: the SPICE time path and the astropy time path are cross-checked, never
+; collapsed into one call. Without this the independence claim could become false at the bit
+; level with every test still green.
 source_modules =
+    farsight.engines
     farsight.metrics
-    farsight.engines.linkchain
+    farsight.uncertainty
+    farsight.hashing
 forbidden_modules =
     astropy
-
     pint
 
 [importlinter:contract:no_network_in_truth_loop]
