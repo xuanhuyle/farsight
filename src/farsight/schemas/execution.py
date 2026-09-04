@@ -97,6 +97,7 @@ __all__ = [
     "StageSpec",
     "RunSpec",
     "STAGE_INPUT_MEMBERS",
+    "models_for_path",
     "model_versions",
     "parameter_paths",
     "paths_reaching_stage",
@@ -285,6 +286,18 @@ class StageModel(FrozenModel):
     a digest. So this is the lowering site for it, and without a path a model-family coordinate
     would be exactly the unattributed value G1 was about.
 
+    **There is no ``origin`` enum here, and the asymmetry with :class:`ValueSource` is
+    deliberate.** A value can arrive by seven sanctioned routes, so closing that set does work.
+    A model selection has exactly one: an ``EpistemicSet`` of ``ModelVersionRef`` resolved by the
+    outer scan. It cannot arrive by collapse -- a model family is uncollapsible, since ``chosen``
+    holds a ``Quantity`` and cannot name a digest -- nor by draw, nor from a sweep. A
+    single-member enum records nothing and would suggest a choice the corpus does not offer.
+
+    A model on a **geometry** stage is legal and not restricted here, because no record forbids
+    it. The consequence for ADR-026's ``model_binding_consistent`` is that it compares a
+    ``ModelVersion.binding.engine_id`` against the stage's ``provider_id``, which every stage
+    has, rather than against ``RunSpec.engine_id()``, which is ``None`` for a geometry-only run.
+
     ``path`` is required and explicitly nullable, which is a different thing from optional.
     ``None`` is an authored statement -- *this stage runs this model because the design says so,
     not because a parameter selected it* -- and the author has to write it. A ``= None`` default
@@ -341,10 +354,14 @@ class StageSpec(FrozenModel):
         # callers asking which models ran.
         keys = [(m.model_version_ref, m.path) for m in v]
         if len(set(keys)) != len(keys):
+            # Sort with the same key as below: a bare sorted() over (ref, path) tuples raises
+            # TypeError comparing None to str, so the refusal would crash instead of refusing.
+            repeated = sorted(
+                {k for k in keys if keys.count(k) > 1}, key=lambda k: (k[0], k[1] or "")
+            )
             raise ValueError(
-                f"stage repeats the same (model, path) selection: "
-                f"{sorted({k for k in keys if keys.count(k) > 1})}. The same model selected at "
-                f"the same path twice says nothing the single entry does not."
+                f"stage repeats the same (model, path) selection: {repeated}. The same model "
+                f"selected at the same path twice says nothing the single entry does not."
             )
         if keys != sorted(keys, key=lambda k: (k[0], k[1] or "")):
             raise ValueError(
@@ -425,6 +442,23 @@ class RunSpec(VersionedDocument):
     run_index: int
     stages: list[StageSpec]
     inputs: list[Ref] = Field(default_factory=list)
+
+    @field_validator("inputs")
+    @classmethod
+    def _check_inputs(cls, v: list[str]) -> list[str]:
+        if len(set(v)) != len(v):
+            raise ValueError(
+                f"RunSpec.inputs lists the same artifact twice: "
+                f"{sorted({r for r in v if v.count(r) > 1})}. An input is cited by digest, so a "
+                f"repeat says nothing the single entry does not."
+            )
+        if v != sorted(v):
+            raise ValueError(
+                "RunSpec.inputs must be byte-wise sorted, so that two runs over the same inputs "
+                "are the same document and hash alike -- the rule `emits` and `models` already "
+                "follow, applied to the third list in this schema"
+            )
+        return v
 
     @field_validator("run_index")
     @classmethod
@@ -525,6 +559,21 @@ class RunSpec(VersionedDocument):
                     f"itself about what the parameter is."
                 )
 
+        # ADR-018: an ArtifactSource names "a DataArtifact listed in RunSpec.inputs". Both the
+        # record's schema comment and this module's own docstring say so, and nothing checked
+        # it. Pure set containment over documents already in hand -- no missing type -- so
+        # leaving it unchecked was a claim the code did not keep.
+        declared = set(self.inputs)
+        for stage in stages:
+            for key, source in sorted(stage.bindings.items()):
+                if isinstance(source, ArtifactSource) and source.artifact_ref not in declared:
+                    raise SpecCompositionError(
+                        f"stage {stage.stage_id!r} binding {key!r} cites artifact "
+                        f"{source.artifact_ref[:12]}..., which is not listed in RunSpec.inputs "
+                        f"(ADR-018). An input a run consumes but does not declare sits outside "
+                        f"the package's input closure, so replay could not resolve it."
+                    )
+
         # D1: a model selection is the second lowering site, so the "bound exactly once" rule
         # (ADR-017 decision 4) has to span both. A path that is a value in one stage and a model
         # choice in another is two routes claiming one parameter, which that record makes a
@@ -589,9 +638,17 @@ class RunSpec(VersionedDocument):
             "to declare supports_stepping -- needs schemas/faults.py and the engine capability "
             "registry",
             "binding completeness (ADR-017 decision 5): every ParameterDecl under an active "
-            "subtree is bound exactly once, and no value arrives by a route that skips a "
-            "declaration -- needs schemas/knowledge.py. This is the check that bounds the "
-            "ArtifactSource and config_ref gaps described in the module docstring",
+            "subtree is bound exactly once, and neither a value nor a model selection arrives "
+            "by a route that skips a declaration -- needs schemas/knowledge.py. This is the "
+            "check that bounds the ArtifactSource and config_ref gaps in the module docstring",
+            "model_refs_resolve at the run site (ADR-026 Enforcement 2): every "
+            "StageModel.model_version_ref resolves to a ModelVersion object present in the "
+            "package -- needs schemas/knowledge.py. The accepted validator is worded over "
+            "references in a DESIGN; D1 created a second population of them in the RunSpec",
+            "model selection agreement: each StageModel.model_version_ref is one of the members "
+            "of the EpistemicSet bound at its path, and a path=None selection is not one a "
+            "parameter actually chose -- needs schemas/design.py. This is the model-side "
+            "counterpart of origin agreement, and without it a selection is a planner assertion",
             "model_binding_consistent (ADR-026): a ModelVersion with an engine_native binding "
             "names an engine_id and a config_dialect, and every StageSpec naming it carries a "
             "config_ref whose dialect matches -- needs schemas/knowledge.py. This schema "
@@ -633,6 +690,13 @@ def parameter_paths(spec: RunSpec) -> frozenset[str]:
     # A model-family choice is a bound parameter too (ADR-004 enumerates ModelVersionRefs as an
     # EpistemicSet), so leaving it out would answer "which parameters does this run depend on"
     # while omitting the one that decides which physics ran.
+    #
+    # Note what this does NOT buy, since an earlier version of this comment claimed it: a model
+    # selection path can never be covered by a collapse scope, because a model family cannot be
+    # collapsed at all (`EpistemicSet.is_model_family`, refused by `EpistemicCollapse`). The live
+    # queries these paths serve are outer-scan attribution and "every claim materially dependent
+    # on a speculative assumption" -- a ModelVersion carries `assumption_refs` and `source_refs`
+    # (ADR-026), so a speculative model is exactly as traceable as a speculative number.
     paths.update(p for stage in spec.stages for p in stage.selection_paths())
     return frozenset(paths)
 
@@ -697,6 +761,16 @@ def model_versions(spec: RunSpec) -> frozenset[str]:
     object, and this is what enumerates them for a run.
     """
     return frozenset(m.model_version_ref for stage in spec.stages for m in stage.models)
+
+
+def models_for_path(spec: RunSpec, path: str) -> list[StageModel]:
+    """Every model selection this run made at ``path``, in stage order.
+
+    The question D1 exists to answer, read directly: *which model did this coordinate select in
+    this run*. :func:`model_versions` strips the paths and :meth:`StageSpec.selection_paths`
+    strips the digests, so neither answers it alone.
+    """
+    return [m for stage in spec.stages for m in stage.models if m.path == path]
 
 
 def value_sources_for_path(spec: RunSpec, path: str) -> list[ValueSource]:

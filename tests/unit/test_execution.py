@@ -30,6 +30,7 @@ from farsight.schemas.execution import (
     StageSpec,
     ValueSource,
     model_versions,
+    models_for_path,
     parameter_paths,
     paths_reaching_stage,
     value_sources_for_path,
@@ -293,12 +294,16 @@ def test_unenforceable_rules_are_declared_rather_than_silently_skipped():
     """Two of the six rules need types that do not exist yet. A deferred check that says nothing
     is indistinguishable from a check that passed, which is the failure C4 was about."""
     rules = dsoc_run().unenforced_rules()
-    assert len(rules) == 5
+    assert len(rules) == 7
     assert any("SystemTopology" in r for r in rules)
     assert any("supports_stepping" in r for r in rules)
     assert any("binding completeness" in r for r in rules)
     assert any("origin agreement" in r for r in rules)
     assert any("model_binding_consistent" in r for r in rules)
+    # D1 created a second population of ModelVersionRefs, in the RunSpec. ADR-026's
+    # model_refs_resolve is worded over references in a DESIGN, so it does not reach them.
+    assert any("model_refs_resolve" in r for r in rules)
+    assert any("model selection agreement" in r for r in rules)
 
 
 # --------------------------------------------------------------------------------------
@@ -395,7 +400,7 @@ def test_the_module_does_not_claim_lineage_it_cannot_deliver():
     """Two routes carry numbers into a run without attribution: a DataArtifact's contents, and
     the opaque per-dialect config document ADR-003 forbids FarSight from reading. Neither is
     closed here, and the deferred check that bounds them is named rather than implied."""
-    run = RunSpec(experiment_hash=HEX, run_index=0, stages=[stage(
+    run = RunSpec(experiment_hash=HEX, run_index=0, inputs=["c" * 64], stages=[stage(
         "s", bindings={"table": ArtifactSource(artifact_ref="c" * 64)},
     )])
     # An artifact-bound stage contributes no paths, and the query says so rather than guessing.
@@ -571,3 +576,54 @@ def test_the_four_outer_points_of_two_model_families_are_all_constructible():
         run = RunSpec(experiment_hash=HEX, run_index=0,
                       stages=[stage("link", kind="engine", models=models)])
         assert parameter_paths(run) == {palomar, table_mountain}
+
+
+def test_an_artifact_a_run_consumes_must_be_declared_in_its_inputs():
+    """ADR-018 types ArtifactSource as "a DataArtifact listed in RunSpec.inputs", and this
+    module's docstring repeats it. Nothing checked it. An input a run consumes but does not
+    declare sits outside the package's input closure, so replay could not resolve it -- and it
+    is pure set containment over documents already in hand, so leaving it unchecked was a claim
+    the code did not keep."""
+    with pytest.raises(SpecCompositionError, match="not listed in RunSpec.inputs"):
+        RunSpec(experiment_hash=HEX, run_index=0, stages=[
+            stage("s", bindings={"table": ArtifactSource(artifact_ref="c" * 64)}),
+        ])
+    RunSpec(experiment_hash=HEX, run_index=0, inputs=["c" * 64], stages=[
+        stage("s", bindings={"table": ArtifactSource(artifact_ref="c" * 64)}),
+    ])
+
+
+def test_run_inputs_are_sorted_and_duplicate_free():
+    """The rule `emits` and `models` already follow, applied to the third list in this schema.
+    Two runs over the same inputs must be the same document."""
+    with pytest.raises(ValidationError, match="same artifact twice"):
+        RunSpec(experiment_hash=HEX, run_index=0, inputs=["c" * 64, "c" * 64],
+                stages=[stage("s")])
+    with pytest.raises(ValidationError, match="sorted"):
+        RunSpec(experiment_hash=HEX, run_index=0, inputs=["d" * 64, "c" * 64],
+                stages=[stage("s")])
+
+
+def test_a_duplicate_selection_refuses_rather_than_crashing():
+    """The refusal sorts (ref, path) tuples, and a bare sorted() over them raises TypeError
+    comparing None to str -- so the error path crashed instead of raising. A validator that
+    dies while explaining itself is worse than one that does not fire."""
+    with pytest.raises(ValidationError, match="repeats the same"):
+        stage("s", models=[
+            StageModel(model_version_ref=MODEL_A, path=None),
+            StageModel(model_version_ref=MODEL_A, path=None),
+            StageModel(model_version_ref=MODEL_A, path="a.b"),
+            StageModel(model_version_ref=MODEL_A, path="a.b"),
+        ])
+
+
+def test_models_for_path_answers_the_question_d1_exists_for():
+    """model_versions strips the paths and selection_paths strips the digests, so neither
+    answers "which model did this coordinate select in this run"."""
+    run = RunSpec(experiment_hash=HEX, run_index=0, stages=[stage(
+        "link", kind="engine",
+        models=[StageModel(model_version_ref=MODEL_A, path=PROP_MODEL_PATH)],
+    )])
+    selected = models_for_path(run, PROP_MODEL_PATH)
+    assert [m.model_version_ref for m in selected] == [MODEL_A]
+    assert models_for_path(run, "nothing.here") == []
