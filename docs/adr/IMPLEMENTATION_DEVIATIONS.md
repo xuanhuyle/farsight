@@ -121,6 +121,87 @@ subtree form that expands to explicit paths at freeze — the same materialize-a
 
 ---
 
+## DEV-9 — `Claim` promoted to an object, and the honest limit of what containment proves
+
+**Record:** [ADR-007](ADR-007-evidence-package-format.md) decision 3 — "The claim statement is a
+required, structured manifest field", singular, ten fields, no identity;
+[ADR-009](ADR-009-metrics-and-acceptance-rules.md) line 109 — the falsifier "is the exact
+restatement of this rule"; [ADR-006](ADR-006-reproducibility-tiers.md) — "Every claim carries
+exactly one" tier
+**Code:** `src/farsight/schemas/design.py` — `Claim`, `ClaimResult`, `falsifier_restates`,
+`unregistered_claim_refs`
+
+**What differs.** `claim_statement` becomes a content-addressed `Claim` belonging to the
+**design**, plus a package-side `ClaimResult` carrying only what execution can know. This is
+finding G3: the ten fields were ~70% of a Claim and 0% of an identity, so nothing could
+reference, contradict or supersede one; a package supported exactly one; and the tie from a claim
+to its supporting runs was directory co-membership rather than a reference.
+
+**Why.** The deepest half is pre-registration. ADR-021 decision 7 already lets FarSight
+pre-register what it will *measure against*; nothing let it pre-register what it will *claim*.
+For a platform whose thesis is falsification that is backwards.
+
+**The central correction, and the reason this entry exists.** The natural claim — "a claim frozen
+into the design cannot be post-hoc, because it sits inside `experiment_hash`" — is **false**, and
+an adversarial pass caught it before this shipped. ADR-005 line 28 derives every bit stream from
+`SeedSequence(entropy=root_seed, spawn_key=(run_index, stream_id))`; `experiment_hash` is not an
+input. So re-freezing a design with a new claim changes every `spec_hash` while leaving every
+drawn value and every channel byte **identical**. Post-hoc insertion costs a re-*plan*, which is
+a pure derivation, not a re-*run*. An author who ran first, looked, then wrote the claim and
+re-froze produces a package that verifies.
+
+So the module says what is true: containment is **tamper-evidence** — a claim absent from the
+design is visibly unregistered, and adding one changes the identity of every run — and
+pre-registration is *containment plus an externally published digest*, which is exactly what plan
+§17 already does when it publishes hashed predictions before the paywalled data is purchased. A
+mechanism that overstated this would be doing the thing the product exists to prevent, and a test
+pins the docstring so a later reader cannot quietly strengthen the claim.
+
+**What is enforced.** Every field on a `Claim` is knowable before a run executes — which is why
+`verdict`, `partial` and `contains_epistemic_collapse` are absent, each being a fact about an
+execution that has not happened. `ClaimResult` restates **nothing** from its claim, because
+ADR-007 refuses two hash-verified copies of one datum by name: they "create a precedence
+question", and any answer is worse than not having the second copy. `run_set` is frozen with the
+claim rather than chosen with the package, since closing HARKing while letting an author pick
+*which runs support the claim* after seeing them is the same problem wearing a different hat.
+The falsifier correspondence is computed by **generation and containment**: the canonical
+condition is generated from the criterion's parts (`metric_display`, the negated comparator, the
+target magnitude) and the falsifier must contain it — which reproduces ADR-007's own worked
+example, `i.e. dsoc.rate_ladder_step_delta < -1`, exactly.
+
+**Rejected after critique.** Character floors on `sentence` and `falsifier`: a floor stands in for
+sharpness and gets the sign wrong, since the bare condition is a better falsifier than sixty
+characters of hedging. A `Finding` type and a sixth register: the lane distinction falls out of
+`unregistered_claim_refs` without new machinery, and ADR-007 line 136 makes a sixth register an
+explicit revisit trigger. A `withdrawn` revision reason: a claim cannot be withdrawn from a
+frozen design, and offering the member would name an operation with no implementation. Coupling
+claim-*optionality* to the exploratory lane: making an exploratory package the one place a result
+needs no claim would make that lane the cheapest legal home for a real finding.
+
+**Consequence if this is the wrong call.** `referent_refs` is required non-empty, following
+ADR-007's rule that `verify` fails a package whose claim lacks a resolvable `referent_ref`. That
+makes a purely internal claim — "the margin exceeds 3 dB", with no external observation to be
+wrong against — **inexpressible**. That may be too strong; the record is explicit and the
+implementation follows it, but this is the field most likely to need widening.
+
+**Not built, and named rather than implied.** `ExperimentDesign` itself, so the containment this
+module describes is asserted by a freeze validator that does not yet exist;
+`AcceptanceCriterion`, so `falsifier_restates` takes the criterion's parts rather than resolving
+its digest. And the link from a confirmatory design back to the exploratory work that prompted it
+must **not** be a hashed back-link — ADR-007 line 126: "a hashed back-link would make a design's
+identity depend on its own search history" — so it belongs in the unhashed provenance half of the
+object file.
+
+**Closes by:** the ADR-032 the self-audit review proposes, which should also carry the
+`claims: []` plurality amendment to ADR-007 decision 3 and decide the `referent_refs` question
+above.
+
+**Status:** internally cross-checked; six binding records were read directly and three
+independent designs were adversarially critiqued, which is what caught the containment overclaim.
+Not externally expert-reviewed.
+
+---
+
 ## DEV-8 — `Source` and `Assumption` defined, and what they deliberately do not claim
 
 **Record:** [ADR-021](ADR-021-referent-semantics.md) (`Referent.source_refs  # Source objects, by
