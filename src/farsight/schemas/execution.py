@@ -333,18 +333,31 @@ class StageSpec(FrozenModel):
     @field_validator("models")
     @classmethod
     def _check_models(cls, v: list[StageModel]) -> list[StageModel]:
-        refs = [m.model_version_ref for m in v]
-        if len(set(refs)) != len(refs):
+        # An entry is a *selection*, not an execution, so uniqueness is on the (model, path)
+        # pair. Two paths naming one model version is ordinary: a grouped binding over three
+        # relay hops (ADR-027) selects a propagation model per hop, and two hops choosing the
+        # same version is a coincidence, not a contradiction. Deduplicating on the digest alone
+        # would refuse that legal document -- and `model_versions` already collapses the set for
+        # callers asking which models ran.
+        keys = [(m.model_version_ref, m.path) for m in v]
+        if len(set(keys)) != len(keys):
             raise ValueError(
-                f"stage names the same ModelVersion twice: "
-                f"{sorted({r for r in refs if refs.count(r) > 1})}. A stage runs a model or it "
-                f"does not; naming it twice is the document disagreeing with itself about how "
-                f"many models there are."
+                f"stage repeats the same (model, path) selection: "
+                f"{sorted({k for k in keys if keys.count(k) > 1})}. The same model selected at "
+                f"the same path twice says nothing the single entry does not."
             )
-        if refs != sorted(refs):
+        if keys != sorted(keys, key=lambda k: (k[0], k[1] or "")):
             raise ValueError(
-                "models must be byte-wise sorted by model_version_ref, so that two stages "
-                "running the same models are the same document and hash alike"
+                "models must be byte-wise sorted by (model_version_ref, path), so that two "
+                "stages running the same models are the same document and hash alike"
+            )
+        paths = [m.path for m in v if m.path is not None]
+        if len(set(paths)) != len(paths):
+            raise ValueError(
+                f"one path selects more than one model version in this stage: "
+                f"{sorted({p for p in paths if paths.count(p) > 1})}. A parameter names the "
+                f"model that runs; naming two is the design disagreeing with itself about which "
+                f"physics executed."
             )
         return v
 

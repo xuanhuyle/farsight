@@ -408,6 +408,14 @@ class EpistemicSet(_EpistemicBase):
                 raise ValueError(f"epistemic set members carry mixed units: {sorted(units)}")
         return v
 
+    def is_model_family(self) -> bool:
+        """True when the members are ``ModelVersionRef`` digests rather than quantities.
+
+        The two enumerate different things and only one of them is a number, which matters
+        wherever a caller is about to do arithmetic or express a distribution over the members.
+        """
+        return bool(self.members) and not isinstance(self.members[0], Quantity)
+
     def enumerate_outer(self, plan: Any = None) -> list[Any]:
         """Every member. Exhaustive by construction -- there is no sampling mode.
 
@@ -576,6 +584,16 @@ class EpistemicCollapse(VersionedDocument):
                 f"a collapse converts an epistemic belief into a distribution; "
                 f"{type(v).__name__} is already samplable, so there is nothing to collapse and "
                 f"the taint this record carries would be a false alarm"
+            )
+        if isinstance(v, EpistemicSet) and v.is_model_family():
+            raise ValueError(
+                "a model family cannot be collapsed. Its members are ModelVersion digests, and "
+                "`chosen` is a Deterministic or Aleatory whose value is a Quantity -- so the "
+                "only thing this record could express is a model family becoming a NUMBER, "
+                "which is not a resolution of the question but a change of subject. "
+                "'The atmospheric law is Kolmogorov or von Karman' is settled by running both "
+                "arms of the outer scan (enumerate_outer, exhaustive by construction), never by "
+                "one signature converting the choice into a dimensionless quantity."
             )
         return v
 

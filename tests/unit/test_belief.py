@@ -505,3 +505,28 @@ def test_model_copy_cannot_mint_an_unvalidated_identity():
 def test_unknown_fields_are_errors_not_extras():
     with pytest.raises(ValidationError):
         Deterministic(value=q("0.22"), pedigree=ped(), typo_field=1)
+
+
+def test_a_model_family_cannot_be_collapsed_into_a_number():
+    """`chosen` is a Deterministic or Aleatory whose value is a Quantity, so the only thing a
+    collapse of a ModelVersionRef set could express is a model family becoming a NUMBER -- not a
+    resolution of the question but a change of subject.
+
+    Before this refusal, "the atmospheric law is Kolmogorov or von Karman" could be collapsed to
+    the dimensionless value 0.5, carrying a human signature and the full authority of the
+    evidence lane. A model family is settled by running both arms of the outer scan.
+    """
+    family = EpistemicSet(
+        members=["1" * 64, "2" * 64],
+        rationale="Kolmogorov or von Karman turbulence law; no basis exists to prefer one.",
+        pedigree=ped(),
+    )
+    assert family.is_model_family()
+    with pytest.raises(ValidationError, match="model family cannot be collapsed"):
+        collapse(original_belief=family)
+
+    # A quantity-valued set stays collapsible: that is the legitimate case.
+    quantities = EpistemicSet(members=[q("1", "urad"), q("2", "urad")],
+                              rationale=RATIONALE, pedigree=ped())
+    assert not quantities.is_model_family()
+    collapse(original_belief=quantities)

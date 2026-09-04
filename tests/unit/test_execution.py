@@ -477,13 +477,33 @@ def test_a_path_cannot_be_both_a_value_and_a_model_selection():
         ])
 
 
-def test_model_lists_are_sorted_and_a_model_is_named_once():
-    with pytest.raises(ValidationError, match="same ModelVersion twice"):
+def test_model_lists_are_sorted_and_a_selection_is_stated_once():
+    with pytest.raises(ValidationError, match="repeats the same"):
         stage("s", models=[StageModel(model_version_ref=MODEL_A, path=None),
                            StageModel(model_version_ref=MODEL_A, path=None)])
     with pytest.raises(ValidationError, match="sorted"):
         stage("s", models=[StageModel(model_version_ref=MODEL_B, path=None),
                            StageModel(model_version_ref=MODEL_A, path=None)])
+
+
+def test_two_paths_may_select_the_same_model_version():
+    """An entry is a SELECTION, not an execution. A grouped binding over three relay hops
+    (ADR-027) selects a propagation model per hop, and two hops choosing the same version is a
+    coincidence, not a contradiction. Deduplicating on the digest alone refused this legal
+    document."""
+    s = stage("link", kind="engine", models=[
+        StageModel(model_version_ref=MODEL_A, path="corridor.hop_a.model"),
+        StageModel(model_version_ref=MODEL_A, path="corridor.hop_b.model"),
+    ])
+    run = RunSpec(experiment_hash=HEX, run_index=0, stages=[s])
+    assert model_versions(run) == {MODEL_A}          # one model ran
+    assert len(parameter_paths(run)) == 2            # two parameters chose it
+
+
+def test_one_path_may_not_select_two_model_versions():
+    with pytest.raises(ValidationError, match="selects more than one model"):
+        stage("s", models=[StageModel(model_version_ref=MODEL_A, path=PROP_MODEL_PATH),
+                           StageModel(model_version_ref=MODEL_B, path=PROP_MODEL_PATH)])
 
 
 def test_a_model_selection_path_obeys_the_topology_grammar():

@@ -170,11 +170,18 @@ selection in another. **Not** enforced: `model_binding_consistent` itself — ma
 `schemas/knowledge.py` does not exist. This schema supplies the edge the validator quantifies
 over; the validator is listed by `RunSpec.unenforced_rules()` until it can run.
 
+**An entry is a selection, not an execution.** Uniqueness is on the `(model_version_ref, path)`
+pair rather than the digest alone, because two paths naming one model version is ordinary: a
+grouped binding over three relay hops (ADR-027) selects a propagation model per hop, and two hops
+choosing the same version is a coincidence, not a contradiction. Deduplicating on the digest
+refused that legal document in the first version of this field. `model_versions()` collapses the
+set for callers asking which models ran, and the converse rule -- one path may not select two
+model versions -- is enforced, since that would be the design disagreeing with itself about which
+physics executed.
+
 **Consequence if this is the wrong call.** `spec_hash` moves again, for the same reason and with
 the same answer as DEV-6: nothing is frozen, and ADR-018's Option 3 already argues that this
-class of change is nearly free now and invalidates the Tier-A golden corpus later. If a stage
-turns out to need the same model twice under different roles, the uniqueness rule is what would
-have to give.
+class of change is nearly free now and invalidates the Tier-A golden corpus later.
 
 **Closes by:** the superseding ADR-018 record, which the self-audit review already scopes as
 carrying `StageSpec.model_ref` and `ValueSource.path` together.
