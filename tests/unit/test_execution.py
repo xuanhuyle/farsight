@@ -519,3 +519,55 @@ def test_the_model_edge_is_part_of_run_identity():
     b = RunSpec(experiment_hash=HEX, run_index=0, stages=[stage(
         "link", kind="engine", models=[StageModel(model_version_ref=MODEL_B, path=None)])])
     assert content_hash(a.model_dump(mode="json")) != content_hash(b.model_dump(mode="json"))
+
+
+def test_one_path_may_not_select_two_models_ACROSS_stages():
+    """Run-scoped, not stage-scoped. An epistemic model-family coordinate is resolved once per
+    outer point (ADR-004 makes the enumeration exhaustive), so a run in which the geometry stage
+    runs Kolmogorov while the link stage runs von Karman under the SAME coordinate asserts that
+    one choice took two values at once. The value-lowering site was already checked across the
+    whole run; the model site was checked only within a stage, so the two were not in fact
+    unified."""
+    with pytest.raises(SpecCompositionError, match="different model versions in this run"):
+        RunSpec(experiment_hash=HEX, run_index=8300, stages=[
+            stage("geometry", models=[StageModel(model_version_ref=MODEL_A, path=PROP_MODEL_PATH)]),
+            stage("link", kind="engine",
+                  models=[StageModel(model_version_ref=MODEL_B, path=PROP_MODEL_PATH)]),
+        ])
+
+    # Two stages agreeing on the same version is ordinary and stays legal.
+    run = RunSpec(experiment_hash=HEX, run_index=0, stages=[
+        stage("geometry", models=[StageModel(model_version_ref=MODEL_A, path=PROP_MODEL_PATH)]),
+        stage("link", kind="engine",
+              models=[StageModel(model_version_ref=MODEL_A, path=PROP_MODEL_PATH)]),
+    ])
+    assert model_versions(run) == {MODEL_A}
+
+
+def test_a_model_cannot_be_both_fixed_and_selected():
+    """path=None and a path are different claims about WHY this model ran -- the design chose
+    it, or a parameter did. A reader cannot be given both."""
+    with pytest.raises(ValidationError, match="both fixed by the design"):
+        stage("link", kind="engine", models=[
+            StageModel(model_version_ref=MODEL_A, path=None),
+            StageModel(model_version_ref=MODEL_A, path=PROP_MODEL_PATH),
+        ])
+
+
+def test_the_four_outer_points_of_two_model_families_are_all_constructible():
+    """The exhaustive-enumeration case the dedupe originally broke. Two stations each bind an
+    EpistemicSet of {Kolmogorov, von Karman}; the scan has four outer points, and two of them
+    put the SAME version at both paths. Those two must be lowerable, or the campaign reports an
+    envelope over half its declared epistemic space -- and a narrower envelope makes AT-5's
+    ceiling and K2's kill threshold easier to pass."""
+    palomar = "ground.palomar.atmosphere_model"
+    table_mountain = "ground.table_mountain.atmos_model"
+    for a, b in [(MODEL_A, MODEL_A), (MODEL_A, MODEL_B), (MODEL_B, MODEL_A), (MODEL_B, MODEL_B)]:
+        models = sorted(
+            [StageModel(model_version_ref=a, path=palomar),
+             StageModel(model_version_ref=b, path=table_mountain)],
+            key=lambda m: (m.model_version_ref, m.path or ""),
+        )
+        run = RunSpec(experiment_hash=HEX, run_index=0,
+                      stages=[stage("link", kind="engine", models=models)])
+        assert parameter_paths(run) == {palomar, table_mountain}

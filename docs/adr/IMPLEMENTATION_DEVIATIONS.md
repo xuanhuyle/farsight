@@ -175,9 +175,15 @@ pair rather than the digest alone, because two paths naming one model version is
 grouped binding over three relay hops (ADR-027) selects a propagation model per hop, and two hops
 choosing the same version is a coincidence, not a contradiction. Deduplicating on the digest
 refused that legal document in the first version of this field. `model_versions()` collapses the
-set for callers asking which models ran, and the converse rule -- one path may not select two
-model versions -- is enforced, since that would be the design disagreeing with itself about which
-physics executed.
+set for callers asking which models ran.
+
+Three converse rules are enforced, all of them **run-scoped**, matching the value-lowering site:
+one path may not select two different model versions anywhere in the run (a per-stage check would
+let the geometry stage run Kolmogorov while the link stage runs von Karman under the same
+coordinate, a run asserting that one choice took two values at once); one path may not be both a
+value and a model selection (ADR-017 decision 4); and one model version may not appear both fixed
+by the design and selected by a parameter within a stage, since those are different claims about
+*why* it ran and a reader cannot be given both.
 
 **Consequence if this is the wrong call.** `spec_hash` moves again, for the same reason and with
 the same answer as DEV-6: nothing is frozen, and ADR-018's Option 3 already argues that this

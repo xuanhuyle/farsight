@@ -359,6 +359,18 @@ class StageSpec(FrozenModel):
                 f"model that runs; naming two is the design disagreeing with itself about which "
                 f"physics executed."
             )
+        # A digest appearing both fixed and selected says two incompatible things about the same
+        # fact: that the design chose this model, and that a parameter did. Only one of those can
+        # be why it ran, and the difference is exactly what the lineage edge exists to record.
+        fixed = {m.model_version_ref for m in v if m.path is None}
+        selected = {m.model_version_ref for m in v if m.path is not None}
+        both = sorted(fixed & selected)
+        if both:
+            raise ValueError(
+                f"model version(s) {[d[:12] + '...' for d in both]} appear both fixed by the "
+                f"design (path=None) and selected by a parameter in this stage. Those are "
+                f"different claims about why this model ran, and a reader cannot be given both."
+            )
         return v
 
     @field_validator("stage_id")
@@ -517,23 +529,38 @@ class RunSpec(VersionedDocument):
         # (ADR-017 decision 4) has to span both. A path that is a value in one stage and a model
         # choice in another is two routes claiming one parameter, which that record makes a
         # freeze failure naming the path.
-        model_paths: dict[str, list[str]] = {}
+        model_paths: dict[str, dict[str, list[str]]] = {}
         for stage in stages:
             for model in stage.models:
                 if model.path is not None:
-                    model_paths.setdefault(model.path, []).append(stage.stage_id)
-        for path, owners in sorted(model_paths.items()):
+                    by_digest = model_paths.setdefault(model.path, {})
+                    by_digest.setdefault(model.model_version_ref, []).append(stage.stage_id)
+        for path, by_digest in sorted(model_paths.items()):
             if path in by_path:
+                owners = sorted({s for ss in by_digest.values() for s in ss})
                 raise SpecCompositionError(
                     f"path {path!r} is bound both as a value and as a model selection "
-                    f"(stages {sorted(owners)}). A path may be bound exactly once by exactly "
+                    f"(stages {owners}). A path may be bound exactly once by exactly "
                     f"one route (ADR-017 decision 4); two routes claiming one path is a freeze "
                     f"failure naming the path."
                 )
-            if len(set(owners)) != len(owners):
+            # Run-scoped, not stage-scoped. One epistemic coordinate has ONE value at one outer
+            # point (ADR-004: the enumeration is exhaustive, so each point fixes every model
+            # family), and the value-lowering site is already checked across the whole run. A
+            # per-stage check would let the geometry stage run Kolmogorov while the link stage
+            # runs von Karman under the same coordinate -- a run asserting that one choice took
+            # two values at once, which no outer point can mean.
+            if len(by_digest) > 1:
+                detail = "; ".join(
+                    f"{digest[:12]}... in {sorted(set(owners))}"
+                    for digest, owners in sorted(by_digest.items())
+                )
                 raise SpecCompositionError(
-                    f"path {path!r} selects more than one model within a single stage "
-                    f"({sorted(owners)}). One parameter names one model version per run."
+                    f"path {path!r} selects {len(by_digest)} different model versions in this "
+                    f"run ({detail}). One parameter names one model version per run: an "
+                    f"epistemic model-family coordinate is resolved once per outer point, so "
+                    f"two answers here is the design disagreeing with itself about which "
+                    f"physics executed."
                 )
         return self
 
