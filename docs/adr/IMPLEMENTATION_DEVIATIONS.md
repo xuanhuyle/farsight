@@ -197,6 +197,81 @@ package build walk.
 
 ---
 
+## DEV-14 — `$FARSIGHT_HOME` has a default, because no record gives it one
+
+**Record:** [ADR-012](ADR-012-offline-security-foundations.md) decision 4 — "configuration,
+object registry, ledger and audit log live under `$FARSIGHT_HOME`";
+[ADR-016](ADR-016-kernel-sets.md) decision 5 anchors the kernel cache at
+`$FARSIGHT_HOME/kernels/<first2>/<sha256>`
+**Code:** `src/farsight/registry/paths.py`
+
+**What differs.** Nothing is contradicted; a value is chosen that four records depend on and none
+supplies. `FARSIGHT_HOME` in the environment wins, then the CLI's `--home`, then a platform
+default: `%LOCALAPPDATA%arsight` on Windows and `~/.local/share/farsight` on POSIX.
+
+**Why.** Every record that mentions state uses one of "workspace", "working store", "output root"
+or `$FARSIGHT_HOME`, and **none of the four is defined anywhere** — a grep across `docs/adr/` and
+the plan returns no definition for any of them. Some module has to resolve a path before anything
+can be stored, and leaving it to whichever module needs one first is how two modules end up
+disagreeing about where the store is.
+
+Platform conventions were followed rather than a third invented, so the location is where a user
+would expect application state on their own operating system.
+
+**What is deliberately not done.** Resolving a path creates no directory. A resolver that makes a
+tree on import turns a typo in an environment variable into a scattering of empty folders and
+makes `--home` hard to test; creation belongs to the writer, `write_atomic`.
+
+**Consequence if this is the wrong call.** The default moves and existing caches are orphaned —
+which matters more than usual here, because ADR-016 forbids garbage-collecting the kernel cache,
+so an orphaned cache is disk that is never reclaimed. That argues for settling the default before
+anything large is fetched, which is the current position.
+
+**Closes by:** a record defining `$FARSIGHT_HOME`, the workspace and the output root, and the
+relationship between them.
+
+**Status:** internally cross-checked. Not externally expert-reviewed.
+
+---
+
+## DEV-15 — the CLI reaches the network through one named edge, not none
+
+**Record:** [ADR-012](ADR-012-offline-security-foundations.md) Enforcement 2 — `socket`, `http`,
+`urllib`, `ftplib`, `smtplib`, `requests` and `httpx` "are forbidden in every `farsight` package
+except `farsight.acquire`, which is itself importable only from the CLI's `fetch` module"
+**Code:** `.importlinter`, contract `no_network_in_truth_loop`
+
+**What differs.** The contract lists `farsight.cli` as a guarded source module *and* names one
+ignored edge, `farsight.cli.fetch -> farsight.acquire.fetch`.
+
+**Why.** ADR-012's architecture is a chain, not a wall, and the two halves of its own sentence
+pull against each other: `acquire` may import a networking library, and the CLI's fetch module is
+its only importer — so the CLI *does* reach the network, transitively, by design. A `forbidden`
+contract reports transitive chains, so listing `farsight.cli` without an exception fails on the
+sanctioned path. This was not theoretical: it broke the moment the fetch verb was registered.
+
+The two alternatives were both worse. Dropping `farsight.cli` from the source list would have
+left every *other* CLI module free to open a socket directly. Dropping the stdlib modules from
+the forbidden list would have left the contract naming only third-party HTTP clients, which is
+where it started — and the sharp omission there was `urllib`, since the obvious way to write a
+downloader uses it, so the contract forbade the imports nobody would reach for and permitted the
+one they would.
+
+**What this buys.** Verified by construction: `socket` added to `cli/main.py` and `urllib` added
+to `cli/exit_codes.py` are both refused, while the one sanctioned edge passes.
+
+**Consequence if this is the wrong call.** The ignored edge is a hole exactly one import wide. If
+`farsight.acquire` ever grows a second importer the contract will say so, because the ignore names
+one specific pair rather than a package.
+
+**Closes by:** nothing needs to close it — this implements ADR-012 as written. It is recorded
+because the exception is invisible in the record's prose and a later reader deleting the
+`ignore_imports` line would break a green build for the wrong reason.
+
+**Status:** internally cross-checked. Not externally expert-reviewed.
+
+---
+
 ## DEV-11 — the design-scope tag is not outside the run-index range, and does not need to be
 
 **Record:** [ADR-005](ADR-005-seeding-and-replay.md) — "`SeedSequence(entropy=design_seed,

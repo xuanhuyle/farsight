@@ -7,12 +7,13 @@ into shipped evidence packages**. Renaming a verb after packages ship makes the 
 those packages wrong forever, and a package whose own instructions do not work is worse than a
 package with none: it is the first thing an auditor tries and the first impression they form.
 
-**Verbs appear here when they work.** This module currently declares the global options and
-``--version`` and nothing else. That is deliberate: a stub verb that accepts its arguments and
-does nothing is indistinguishable, from a script's point of view, from one that succeeded. The
-same reasoning made ``enumerate_outer`` refuse a sampling plan it could not honour rather than
-silently return two vertices. Verbs land with their implementations, and until then the command
-does not exist rather than existing and lying.
+**Verbs appear here when they work.** A stub verb that accepts its arguments and does nothing is
+indistinguishable, from a script's point of view, from one that succeeded -- the same reasoning
+that made ``enumerate_outer`` refuse a sampling plan it could not honour rather than silently
+return two vertices. Verbs land with their implementations, and until then the command does not
+exist rather than existing and lying.
+
+``fetch`` is registered because it works. The rest of ADR-024's seventeen-verb surface is not.
 
 The global options are ADR-024's, and are accepted on every command: ``--json``, ``--quiet``,
 ``--home PATH``, ``--no-color``, ``--version``.
@@ -27,6 +28,7 @@ from typing import Annotated, Optional
 import typer
 
 from farsight.cli import exit_codes
+from farsight.cli.fetch import app as fetch_app
 
 __all__ = ["app", "main"]
 
@@ -49,6 +51,9 @@ def _version() -> str:
         return version("farsight")
     except PackageNotFoundError:  # running from a checkout with no install
         return "0+unknown"
+
+
+app.add_typer(fetch_app, name="fetch")
 
 
 @app.callback(invoke_without_command=True)

@@ -106,8 +106,16 @@ forbidden_modules =
     pint
 
 [importlinter:contract:no_network_in_truth_loop]
-; ADR-012: the runner and the verifier make zero network calls, ever. Acquisition is the
-; separate `farsight fetch` path in acquire/.
+; ADR-012 Enforcement 2 names the forbidden set and the single exception exactly: `socket`,
+; `http`, `urllib`, `ftplib`, `smtplib`, `requests` and `httpx` are forbidden in every `farsight`
+; package except `farsight.acquire`, which is itself importable only from the CLI's fetch module.
+;
+; The contract shipped naming only the four third-party clients, and listing six of the twelve
+; packages as sources -- so `urllib` was importable anywhere and `farsight.registry`,
+; `farsight.units`, `farsight.cli`, `farsight.faults`, `farsight.uncertainty` and
+; `farsight.comparison` were unguarded entirely. The stdlib omission was the sharp one: the
+; obvious way to write a downloader uses `urllib`, so the contract forbade the imports nobody
+; was going to reach for and permitted the one they would.
 name = no network in the truth loop
 type = forbidden
 source_modules =
@@ -117,8 +125,27 @@ source_modules =
     farsight.engines
     farsight.metrics
     farsight.evidence
+    farsight.registry
+    farsight.units
+    farsight.cli
+    farsight.faults
+    farsight.uncertainty
+    farsight.comparison
+    farsight.analysis
 forbidden_modules =
+    socket
+    http
+    urllib
+    ftplib
+    smtplib
     requests
     httpx
     urllib3
     aiohttp
+; ADR-012's architecture is a chain, not a wall: `farsight.acquire` is the one package permitted
+; a networking library, and the CLI's fetch module is its only importer. So `farsight.cli` does
+; reach the network -- through exactly one edge, and only that one. Naming the edge here is what
+; keeps the rest of `farsight.cli` guarded: any OTHER route from the CLI to a socket still fails,
+; which is what a bare removal of `farsight.cli` from the source list would have given up.
+ignore_imports =
+    farsight.cli.fetch -> farsight.acquire.fetch
