@@ -1,0 +1,45 @@
+{
+  "_comment": [
+    "Digests for external kernels, pinned so that every fetch after the first is a CHECK rather",
+    "than a download. `farsight fetch kernel` requires --expect-sha256 and has no flag to skip",
+    "it; this file is where that value comes from.",
+    "",
+    "READ THIS BEFORE ADDING A ROW. NAIF publishes no checksums for the generic kernels -- there",
+    "is no checksums.txt, no SHA256SUMS, and the directory readme carries no digest (verified",
+    "2026-09-07). So the FIRST acquisition of any kernel here could not verify anything: the",
+    "digest was obtained by downloading the file and hashing it. That is trust-on-first-use, and",
+    "it is a genuinely weaker property than the rest of this system provides -- it establishes",
+    "that everyone afterwards gets the same bytes we got, not that the bytes we got were the",
+    "bytes NAIF published. Recorded as DEV-16.",
+    "",
+    "A row is added by fetching, hashing, and writing the result down. Changing an existing row",
+    "is not a maintenance action: a kernel's bytes do not change, so a differing digest means",
+    "either the publisher reissued the file under the same name or something is wrong, and both",
+    "need a human to look rather than an edit."
+  ],
+  "kernels": [
+    {
+      "logical_name": "naif0012.tls",
+      "kernel_type": "lsk",
+      "url": "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/lsk/naif0012.tls",
+      "sha256": "678e32bdb5a744117a467cd9601cd6b373f0e9bc9bbde1371d5eee39600a039b",
+      "size_bytes": 5257,
+      "acquired_on": "2026-09-07",
+      "acquisition": "trust_on_first_use",
+      "license_note": "NAIF generic kernel; NASA/JPL public domain, redistributable unmodified.",
+      "note": [
+        "The leapsecond kernel. ADR-016 decision 6 requires exactly one LSK per KernelSet, which",
+        "is what makes 'the pinned LSK' in ADR-015's conversion records denote a single kernel.",
+        "",
+        "USE THE UNIX VARIANT ON EVERY PLATFORM. NAIF also publishes naif0012.tls.pc, which is",
+        "the same kernel with CRLF line endings and is 5409 bytes -- a DIFFERENT content address",
+        "for identical physics. SPICE reads both. Fetching the .pc variant on Windows would give",
+        "a design frozen there a different kernel_set_hash from one frozen on Linux, and ADR-006's",
+        "cross-platform golden would fail for a reason that has nothing to do with physics.",
+        "",
+        "Do NOT pin latest_leapseconds.tls. It is a symlink NAIF updates in place, so the same URL",
+        "returns different bytes over time -- exactly what content addressing exists to prevent."
+      ]
+    }
+  ]
+}

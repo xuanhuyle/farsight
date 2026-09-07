@@ -272,6 +272,67 @@ because the exception is invisible in the record's prose and a later reader dele
 
 ---
 
+## DEV-16 — the first fetch of a NAIF kernel cannot verify anything
+
+**Record:** [ADR-012](ADR-012-offline-security-foundations.md) decision 1 —
+`farsight fetch kernel --url <url> --expect-sha256 <hex> --into <cache>`;
+[ADR-016](ADR-016-kernel-sets.md) Enforcement 9 (KERN-2) — the `DataArtifact` carries the source
+URL and `naif_unmodified` may be stamped only when the stored bytes match "the hash `fetch`
+recorded at acquisition"
+**Code:** `kernels/pinned_kernels.json`; `src/farsight/acquire/fetch.py`
+
+**What differs.** Nothing in the code. The gap is in the record's premise: `--expect-sha256` is a
+required precondition with no flag to skip it, and **no record says where the first digest comes
+from.**
+
+**Why.** The precondition is right and the premise behind it is missing: a digest that must come
+from somewhere other than the download has to come from *somewhere*, and for this publisher it
+does not exist. Implementing the check as written and pretending the first fetch satisfied it
+would make every later verification inherit a claim nobody made.
+
+**What that means here specifically.** Verified 2026-09-07: NAIF publishes no checksums for the
+generic kernels. There is no `checksums.txt`, no `md5sums.txt`, no `SHA256SUMS`, and the LSK
+directory's `aareadme.txt` carries no digest. So the first acquisition of `naif0012.tls` could not
+check anything against an independent source — the digest
+`678e32bdb5a744117a467cd9601cd6b373f0e9bc9bbde1371d5eee39600a039b` was obtained by downloading the
+file and hashing it.
+
+That is **trust-on-first-use**, and it is a genuinely weaker property than the rest of this system
+provides. Stated precisely: it establishes that everyone after us gets the same bytes we got. It
+does **not** establish that the bytes we got are the bytes NAIF published. A compromise of the
+transport or the origin at the moment of first fetch would be pinned, not caught, and every
+subsequent verification would confirm the compromised bytes.
+
+**What was done to narrow it, and what remains.** The file was fetched twice over independent
+connections and the bytes compared, which catches transient corruption and nothing else. Transport
+was HTTPS, which is not nothing but is not a publisher attestation. The digest is now pinned in
+`kernels/pinned_kernels.json`, so every fetch after the first is a real check; the manifest states
+the acquisition mode per row rather than letting a pin read as verified provenance, and a test
+refuses a row that does not declare one.
+
+**Two hazards found in the same pass, both fixed by the manifest's rules and tested.** NAIF ships
+`naif0012.tls.pc` — the same kernel with CRLF line endings, 5,409 bytes against 5,257, and
+therefore a **different content address for identical physics**. Fetching that variant on Windows
+would give a design frozen there a different `kernel_set_hash` from one frozen on Linux, and
+ADR-006's cross-platform golden would fail for a reason with nothing to do with physics. And
+`latest_leapseconds.tls` is a symlink NAIF updates in place, so the same URL returns different
+bytes over time — exactly what content addressing exists to prevent. Neither is pinnable.
+
+**Consequence if this is left as it is.** Every kernel this project ships rests on a
+trust-on-first-use root, and a package's provenance chain is only as strong as that root. That is
+survivable and common — it is how most dependency pinning works — but it must never be described
+as verified against the publisher, because it is not.
+
+**Closes by:** a record stating the acquisition modes and what each one licenses a package to
+claim; or a genuine second source for the digest — a PDS4 bundle checksum manifest, a published
+paper, or an independent project's pin — at which point the row's `acquisition` changes and the
+weaker mode is retired for that kernel.
+
+**Status:** internally cross-checked; the absence of NAIF checksums was verified directly rather
+than assumed. Not externally expert-reviewed.
+
+---
+
 ## DEV-11 — the design-scope tag is not outside the run-index range, and does not need to be
 
 **Record:** [ADR-005](ADR-005-seeding-and-replay.md) — "`SeedSequence(entropy=design_seed,

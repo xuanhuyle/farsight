@@ -295,3 +295,66 @@ def test_acquire_is_imported_only_by_the_cli_fetch_module():
                 if any(a.name.startswith("farsight.acquire") for a in node.names):
                     importers.append(rel)
     assert set(importers) <= {"cli/fetch.py"}, f"unexpected importers of acquire: {sorted(set(importers))}"
+
+
+# --------------------------------------------------------------------------------------
+# The pinned-kernel manifest (offline: it is a file in the repo, not a fetch)
+# --------------------------------------------------------------------------------------
+
+import json as _json
+
+MANIFEST = REPO / "kernels" / "pinned_kernels.json"
+
+
+def test_the_pinned_manifest_is_well_formed():
+    """`farsight fetch kernel` requires --expect-sha256 and has no flag to skip it. This file is
+    where that value comes from, so a malformed row is a fetch nobody can perform correctly."""
+    doc = _json.loads(MANIFEST.read_text(encoding="utf-8"))
+    assert doc["kernels"], "an empty manifest would pass every other check vacuously"
+    for row in doc["kernels"]:
+        for field in ("logical_name", "kernel_type", "url", "sha256", "size_bytes",
+                      "acquired_on", "acquisition", "license_note"):
+            assert field in row, f"{row.get('logical_name')} is missing {field}"
+        assert len(row["sha256"]) == 64 and row["sha256"].islower()
+        int(row["sha256"], 16)
+        assert row["size_bytes"] > 0
+        assert row["url"].startswith("https://")
+
+
+def test_every_pin_declares_how_it_was_acquired():
+    """NAIF publishes no checksums, so the first acquisition of each kernel is trust-on-first-use
+    -- a genuinely weaker property than the rest of the system provides. A row that does not say
+    so would read as verified provenance (DEV-16)."""
+    doc = _json.loads(MANIFEST.read_text(encoding="utf-8"))
+    for row in doc["kernels"]:
+        assert row["acquisition"] in {"trust_on_first_use", "publisher_digest", "pds_checksum"}
+
+
+def test_no_pin_points_at_a_mutable_alias():
+    """`latest_leapseconds.tls` is a symlink NAIF updates in place, so the same URL returns
+    different bytes over time -- exactly what content addressing exists to prevent."""
+    doc = _json.loads(MANIFEST.read_text(encoding="utf-8"))
+    for row in doc["kernels"]:
+        assert "latest_" not in row["url"], f"{row['url']} is a mutable alias, not a pinned file"
+
+
+def test_no_pin_takes_the_windows_line_ending_variant():
+    """NAIF ships naif0012.tls.pc: identical physics, CRLF line endings, 5409 bytes instead of
+    5257 -- a different content address. Fetching it on Windows would give a design frozen there
+    a different kernel_set_hash from one frozen on Linux, and ADR-006's cross-platform golden
+    would fail for a reason that has nothing to do with physics."""
+    doc = _json.loads(MANIFEST.read_text(encoding="utf-8"))
+    for row in doc["kernels"]:
+        assert not row["url"].endswith(".pc"), f"{row['url']} is the CRLF variant"
+
+
+def test_the_pinned_lsk_digest_is_the_one_this_repo_fetched():
+    """A regression pin. If this value ever changes, the question is what NAIF reissued or what
+    went wrong -- never what this test says."""
+    doc = _json.loads(MANIFEST.read_text(encoding="utf-8"))
+    lsk = [r for r in doc["kernels"] if r["kernel_type"] == "lsk"]
+    assert len(lsk) == 1, "ADR-016 decision 6: exactly one LSK, so 'the pinned LSK' denotes one file"
+    assert lsk[0]["sha256"] == (
+        "678e32bdb5a744117a467cd9601cd6b373f0e9bc9bbde1371d5eee39600a039b"
+    )
+    assert lsk[0]["size_bytes"] == 5257
