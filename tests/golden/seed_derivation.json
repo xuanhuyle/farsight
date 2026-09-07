@@ -1,0 +1,173 @@
+{
+  "_comment": "ADR-005 enforcement: the same (root, run_index, stream_id) must give identical generate_state words on Windows and Linux. A same-platform equality assertion passes vacuously, so the words are checked in here and compared on both CI legs. Regenerating this file to make a red build green would silently retire the guarantee -- if it fails, the question is what changed in the derivation or in NumPy, never what this file says.",
+  "generated_with_numpy": "2.5.2",
+  "keys": [
+    {
+      "run_index": 0,
+      "stream": "aleatory_draws",
+      "stream_id": 0,
+      "words": [
+        "0xe9adf23e",
+        "0xea4f7866",
+        "0xb73a50b8",
+        "0xa6645c97"
+      ]
+    },
+    {
+      "run_index": 0,
+      "stream": "engine_module_seeds",
+      "stream_id": 1,
+      "words": [
+        "0xdb0fc496",
+        "0x20fecb40",
+        "0x91a98ab6",
+        "0x64a82c83"
+      ]
+    },
+    {
+      "run_index": 0,
+      "stream": "sampler_internal",
+      "stream_id": 2,
+      "words": [
+        "0x4935c4d3",
+        "0x521cc1d0",
+        "0xa84f1d86",
+        "0x5e040841"
+      ]
+    },
+    {
+      "run_index": 1,
+      "stream": "aleatory_draws",
+      "stream_id": 0,
+      "words": [
+        "0x2f0e63a6",
+        "0xa146bbb1",
+        "0x99b9bc8a",
+        "0x8e3322d7"
+      ]
+    },
+    {
+      "run_index": 1,
+      "stream": "engine_module_seeds",
+      "stream_id": 1,
+      "words": [
+        "0x5d268d90",
+        "0xba7aecd6",
+        "0xd33243a7",
+        "0x011bc637"
+      ]
+    },
+    {
+      "run_index": 1,
+      "stream": "sampler_internal",
+      "stream_id": 2,
+      "words": [
+        "0x06ac6d3f",
+        "0x0f84a4aa",
+        "0x4f363dce",
+        "0xe60b9a65"
+      ]
+    },
+    {
+      "run_index": 213,
+      "stream": "aleatory_draws",
+      "stream_id": 0,
+      "words": [
+        "0x1cb5913f",
+        "0xff09e3d9",
+        "0x82c823cf",
+        "0x235fc6f1"
+      ]
+    },
+    {
+      "run_index": 213,
+      "stream": "engine_module_seeds",
+      "stream_id": 1,
+      "words": [
+        "0x0a646df4",
+        "0xa3a2a29b",
+        "0xd5ce7997",
+        "0x4f82f384"
+      ]
+    },
+    {
+      "run_index": 213,
+      "stream": "sampler_internal",
+      "stream_id": 2,
+      "words": [
+        "0x0692921d",
+        "0x0cabaa34",
+        "0xe6e2ba94",
+        "0x183b4abf"
+      ]
+    },
+    {
+      "run_index": 4242,
+      "stream": "aleatory_draws",
+      "stream_id": 0,
+      "words": [
+        "0x63eef268",
+        "0x1a693e86",
+        "0x87b43ce5",
+        "0x01603fae"
+      ]
+    },
+    {
+      "run_index": 4242,
+      "stream": "engine_module_seeds",
+      "stream_id": 1,
+      "words": [
+        "0x0b03a9ae",
+        "0x36c86f9a",
+        "0xb398942b",
+        "0x309a907c"
+      ]
+    },
+    {
+      "run_index": 4242,
+      "stream": "sampler_internal",
+      "stream_id": 2,
+      "words": [
+        "0x3d3739ae",
+        "0x04bad06a",
+        "0x513be05e",
+        "0x6dd7b7e7"
+      ]
+    },
+    {
+      "run_index": 9599,
+      "stream": "aleatory_draws",
+      "stream_id": 0,
+      "words": [
+        "0x0c7327e8",
+        "0x06c1c920",
+        "0x62b49cb8",
+        "0x9b835319"
+      ]
+    },
+    {
+      "run_index": 9599,
+      "stream": "engine_module_seeds",
+      "stream_id": 1,
+      "words": [
+        "0x2c5f403a",
+        "0x9e74dc22",
+        "0x35d284e2",
+        "0xab35468f"
+      ]
+    },
+    {
+      "run_index": 9599,
+      "stream": "sampler_internal",
+      "stream_id": 2,
+      "words": [
+        "0xfadca6b2",
+        "0xea355af1",
+        "0x065ae152",
+        "0x8914b238"
+      ]
+    }
+  ],
+  "root_seed": "31415926535897932384626433832795028841",
+  "stream_registry_version": 1
+}

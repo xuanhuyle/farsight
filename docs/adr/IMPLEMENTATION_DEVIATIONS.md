@@ -121,6 +121,48 @@ subtree form that expands to explicit paths at freeze — the same materialize-a
 
 ---
 
+## DEV-11 — the design-scope tag is not outside the run-index range, and does not need to be
+
+**Record:** [ADR-005](ADR-005-seeding-and-replay.md) — "`SeedSequence(entropy=design_seed,
+spawn_key=(0xD5, ...))`, where `0xD5` is the design-scope tag and is **deliberately outside the
+run-index range**"; its Enforcement asks `test_seed_derivation` to assert "that no design-scoped
+`spawn_key[0]` value is in the run-index range"
+**Code:** `src/farsight/experiments/seeding.py` — `DESIGN_SCOPE_TAG`;
+`tests/unit/test_seeding.py::test_design_scoped_keys_are_separated_by_entropy_not_by_tag_value`
+
+**What differs.** The stated enforcement is not satisfiable and is not implemented as written.
+`0xD5` is 213. ADR-004's own illustrative campaign is 24 outer points × 400 inner draws = 9,600
+runs, so `run_index` 213 exists in the flagship's own sampling plan. There is no value that is
+both a small constant and outside the run-index range, because the range grows with the campaign.
+
+**Why.** The record's own decision is sound; only the justification offered for the constant is
+wrong, and implementing the justification rather than the decision would produce a check that is
+either vacuous or wrong.
+
+**What the real separation is.** Design-scoped keys are rooted at
+`design_seed`, which is a *different entropy value* from `root_seed` — ADR-005 says so in the same
+paragraph. Two `SeedSequence` objects with different entropy produce unrelated streams regardless
+of whether their `spawn_key` prefixes coincide, so the tag value carries no separation duty at
+all. The record's own decision is sound; only the justification offered for the constant is wrong.
+
+**What is implemented instead.** A test asserting the separation that is real: the same
+`spawn_key` prefix under `design_seed` and under `root_seed` produces different words. Writing
+the enforcement as stated would have meant either a test that passes vacuously (asserting 213 is
+outside a range that is empty because no campaign exists yet) or one that fails the moment a
+campaign exceeds 214 runs.
+
+**Consequence if this reading is wrong.** If the intent was that design-scoped and run-scoped keys
+share one entropy value — which the record's wording elsewhere contradicts — then the tag would
+have to be moved outside the maximum campaign size, and the constant would need a bound the
+record does not state. That would be a superseding decision, not a validator change.
+
+**Closes by:** a superseding ADR-005 restating the separation as entropy-based and dropping the
+range claim, or stating a maximum campaign size that makes the original claim true.
+
+**Status:** internally cross-checked. Not externally expert-reviewed.
+
+---
+
 ## DEV-10 — the units boundary is a package, not a `Quantity` method
 
 **Record:** [ADR-008](ADR-008-units-and-numerics.md) — the decision block sketches
