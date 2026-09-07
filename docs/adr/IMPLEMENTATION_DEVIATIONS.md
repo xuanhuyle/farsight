@@ -976,13 +976,39 @@ The synthetic-SPK leg is kept rather than retired: it exercises the same machine
 download, so CI has an unconditional green path, and the real leg skips cleanly when the 46 MiB is
 absent.
 
-**What is still not established, and is not implied by any of the above:** nothing here compares
-these numbers to an independent source. They come from JPL's own reconstructed trajectory and are
-computed by CSPICE. ADR-015's `ci-geometry-crosscheck` against Horizons is a separate check and is
-not implemented, so "hash-stable" and "agrees with the kernels" are the claims — not "correct".
+**Update 2026-09-07 (second) -- the cross-check now exists.**
 
-**Status:** Open, narrowed. Psyche and pass geometry met; the container leg and the independent
-cross-check remain.
+`ci-geometry-crosscheck` is implemented: `tests/unit/test_horizons_crosscheck.py` compares the
+pipeline against a hash-pinned JPL Horizons response. Worst disagreement over a 9-sample pass:
+**0.69 m on a 61.5 million km range** and **0.134 arcsec on elevation**, against AT-11 figures of
+10 km and 0.01 deg. The residual is explained rather than merely small -- it is a 0.41 m station
+displacement caused by `pck00010.tpc` and Horizons using Earth radii that differ by 0.4 m. Full
+numbers in `docs/measurements/horizons-crosscheck.md`.
+
+Seven deliberate errors were injected to confirm the check bites: wrong aberration on a range and
+on a direction, the asteroid substituted for the spacecraft, the wrong station, an inertial frame
+where a topocentric one belongs, UTC read as TDB, and an edited golden. All seven fail the test.
+
+**The claim this licenses, and its limit.** Horizons states `{source: psyche_merged}` in the
+archived header -- JPL's own merged trajectory, the same solution family the SPK carries. So this
+is an independent IMPLEMENTATION, not an independent MEASUREMENT. It rules out a frame, time,
+aberration, body, observer or unit error anywhere in the pipeline. It cannot rule out an error in
+JPL's trajectory, because both sides would inherit it. "Validated against an independent source"
+remains an overstatement; "agrees with an independent implementation of the same solution, to
+sub-metre, under matched conventions" is what may be said.
+
+**Still not established:** ADR-019's container is not built, so no cross-OS or cross-ISA claim is
+made. And a referent genuinely independent of JPL's solution -- a radiometric tracking residual, a
+published DSOC figure -- is not in hand.
+
+**A decision is open and is the founder's.** ADR-030 makes an acceptance tolerance a founder
+decision. The test carries REGRESSION bounds (2.0 m, 0.5 arcsec), set just above what was measured
+so a change fails; they are deliberately not an accuracy budget and not a customer promise.
+
+**Status:** Open, narrowed twice. Psyche, pass geometry and the geometry cross-check are met; the
+container leg, a solution-independent referent, and the acceptance tolerance remain.
+
+
 ## DEV-21 — RESOLVED: geometry moved onto `RunSpec`, and `GeometryDesign` was retired
 
 **Record:** [ADR-018](ADR-018-run-composition.md) decision 1 — "A run with no engine stage is a
