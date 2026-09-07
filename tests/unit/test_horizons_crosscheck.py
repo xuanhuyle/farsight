@@ -112,6 +112,36 @@ def test_the_archived_response_is_the_one_that_was_retrieved():
     assert hashlib.sha256(GOLDEN.read_bytes()).hexdigest() == GOLDEN_SHA256
 
 
+def test_the_golden_is_protected_from_line_ending_conversion():
+    """The failure this test exists to explain, rather than merely detect.
+
+    MEASURED 2026-09-07: with `core.autocrlf=true` -- the Git for Windows default -- and no
+    `.gitattributes`, this file came out of a FRESH CLONE as 12,036 bytes with 225 CRLF pairs
+    instead of the 11,811 committed. The digest assertion above then failed on a correct checkout
+    of correct content, for a reason that has nothing to do with geometry.
+
+    `kernels/pinned_kernels.json` already carried the same warning one level up: NAIF's
+    `naif0012.tls.pc` is the same leapsecond kernel with CRLF endings and a different content
+    address. This is that warning applied to a file inside this repository.
+
+    Checked as its own assertion so the message names the cause. A bare digest mismatch sends a
+    reader looking for a re-solved trajectory.
+    """
+    assert (REPO / ".gitattributes").exists(), (
+        "no .gitattributes, so every hash-pinned fixture is subject to line-ending conversion"
+    )
+    rules = (REPO / ".gitattributes").read_text(encoding="utf-8")
+    assert "tests/fixtures/horizons/** -text" in rules, (
+        "the archived Horizons response is not marked `-text`, so Git may rewrite its bytes on "
+        "checkout and its pinned digest becomes machine-dependent"
+    )
+    assert b"\r\n" not in GOLDEN.read_bytes(), (
+        "the archived response contains CRLF line endings, so this working tree was checked out "
+        "with conversion enabled. The data is not corrupt -- the checkout is. Verify "
+        "`.gitattributes` is present and re-checkout the file"
+    )
+
+
 def test_the_archived_settings_are_the_ones_we_compare_under():
     """ADR-015: the response's stated settings are read FROM THE ARTIFACT, never copied into
     prose. If Horizons had been queried with refraction on, or a different site, or a different

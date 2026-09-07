@@ -1,0 +1,37 @@
+# Line-ending policy, and why it is not cosmetic here.
+#
+# This repository content-addresses things. A file whose bytes change between checkouts has a
+# different digest, and a digest that depends on which machine cloned the repo is not an address.
+#
+# MEASURED 2026-09-07: with `core.autocrlf=true` (the Git for Windows default) and no rules here,
+# `tests/fixtures/horizons/psyche_palomar_2024-01-15.txt` came out of a fresh clone as 12,036
+# bytes with 225 CRLF pairs instead of the 11,811 bytes that were committed. Its pinned SHA-256
+# did not match and `test_horizons_crosscheck.py` failed -- on a correct checkout of correct
+# content, for a reason that has nothing to do with geometry.
+#
+# `kernels/pinned_kernels.json` already carried the warning for the same hazard one level up:
+# NAIF ships `naif0012.tls.pc`, which is the same leapsecond kernel with CRLF endings and a
+# different content address. The rule below is that warning applied to this repository's own
+# files.
+
+# Default: normalize text to LF in the repository, and check it out as LF everywhere. Cross-
+# platform byte-identical working trees are a precondition for ADR-006's per-platform goldens
+# meaning anything.
+* text=auto eol=lf
+
+# Anything whose BYTES are pinned by a digest is binary as far as Git is concerned. `-text`
+# disables every form of conversion in both directions, which is stronger than `eol=lf` and is
+# what these files need: not "checked out consistently" but "never touched".
+tests/fixtures/horizons/** -text
+tests/fixtures/*.tls       -text
+tests/fixtures/*.bsp       -text
+tests/fixtures/*.bpc       -text
+tests/fixtures/*.tf        -text
+tests/fixtures/*.tpc       -text
+kernels/**                 -text
+
+# Binary by nature.
+*.npy  binary
+*.bsp  binary
+*.bpc  binary
+*.sqlite binary
