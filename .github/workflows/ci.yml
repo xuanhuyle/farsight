@@ -44,3 +44,23 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[dev]"
       - run: python -m pytest tests/unit -q --disable-socket
+
+  spice:
+    # ADR-014: spiceypy is an EXTRA. The `test` job above deliberately does NOT install it, which
+    # is what keeps the auditor's zero-extras path exercised -- three records call that property
+    # the most commercially important one in the codebase, and it is only real if CI proves the
+    # base install works without the extra. This job is the other half: the SPICE-dependent tests
+    # skip in `test` and would otherwise never run anywhere.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev,spice]"
+      - name: spice adapter tests
+        run: python -m pytest tests/unit -q
+      - name: boundaries still hold with spiceypy installed
+        # `geometry_is_not_an_engine` can only be violated once spiceypy is importable, so this
+        # is the leg where that contract does real work.
+        run: lint-imports

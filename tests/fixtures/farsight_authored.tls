@@ -1,0 +1,52 @@
+KPL/LSK
+
+AUTHORED BY FARSIGHT. THIS IS NOT A NAIF PRODUCT.
+
+A minimal leapsecond kernel used as a test fixture, so that CI can exercise the SPICE time path
+without redistributing a NAIF kernel. ADR-016 rejects a curated FarSight kernel bundle (its
+Option 7) and requires every real kernel to be fetched by hash from a publisher URL recorded in a
+DataArtifact; its own Enforcement item 2 uses "text kernels authored by FarSight" for exactly
+this purpose, which is what this file is.
+
+The constants below are definitional or published facts rather than NAIF's work:
+
+  DELTA_T_A   32.184 s, the definitional TT - TAI offset.
+  K, EB, M    the periodic relativistic terms of the TDB - TT series, whose values are given in
+              the SPICE documentation and in the Explanatory Supplement to the Astronomical
+              Almanac. They are reproduced because a leapsecond kernel without them will not
+              load, not because they are ours.
+  DELTA_AT    the last two entries of the IERS leap-second table. The full table runs from 1972;
+              only the tail is included, which is what makes this a fixture and not a substitute
+              for naif0012.tls. Epochs before 2017-01-01 are outside it -- see the warning below,
+              because they do NOT fail.
+
+Verified equivalent to naif0012.tls for the DSOC benchmark epoch: both give
+deltet(2024-06-24T00:00:00, "ET") = 69.1843030063424 s.
+
+READ THIS BEFORE USING IT FOR ANY OTHER EPOCH. SPICE does NOT refuse an epoch before the table
+below. It extrapolates from the earliest entry and returns a plausible, wrong number, silently:
+
+    epoch                 this fixture      naif0012.tls      error
+    1980-01-01            67.183918 s       51.183918 s       16 seconds
+    2000-01-01            67.183913 s       64.183913 s        3 seconds
+    2024-06-24            69.184303 s       69.184303 s        none
+
+A 16-second time error propagates into a trajectory as thousands of kilometres and looks entirely
+normal on the way through. This fixture is valid ONLY for epochs on or after 2017-01-01, and
+nothing in SPICE will tell you when you leave that range -- which is the concrete argument for
+ADR-016's `kernel_coverage_completeness` being a freeze-time validator rather than a runtime
+check.
+
+\begindata
+
+DELTET/DELTA_T_A       =   32.184
+DELTET/K               =    1.657D-3
+DELTET/EB              =    1.671D-2
+DELTET/M               = (  6.239996D0   1.99096871D-7 )
+
+DELTET/DELTA_AT        = ( 36,   @2015-JUL-1
+                           37,   @2017-JAN-1 )
+
+\begintext
+
+End of the FarSight-authored fixture.

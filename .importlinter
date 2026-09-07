@@ -149,3 +149,37 @@ forbidden_modules =
 ; which is what a bare removal of `farsight.cli` from the source list would have given up.
 ignore_imports =
     farsight.cli.fetch -> farsight.acquire.fetch
+
+[importlinter:contract:geometry_is_not_an_engine]
+; ADR-018 Enforcement 4, "first green by week 3". `spiceypy` may be imported nowhere under
+; src/farsight/ except `farsight.engines.spice.**`.
+;
+; This is the mechanical prevention of ADR-018's rejected Option 2 -- the link-chain adapter
+; furnishing kernels and calling SPICE itself -- which the record calls "the architecture that
+; happens by default under schedule pressure in week 3". The contract exists so that is blocked
+; by a check rather than by somebody remembering the record.
+;
+; It also protects ADR-015 decision 7, which is the sharper reason: the SPICE time path and the
+; independent astropy time path are cross-checked, never collapsed into one call. If any module
+; outside engines.spice could reach spiceypy, that independence could become false at the bit
+; level with every test still green.
+;
+; Guarding all of `farsight` and exempting the one package -- rather than enumerating the other
+; twelve -- means a new engine package added later is guarded by default instead of being
+; unlisted and therefore free.
+name = spiceypy lives only in the spice adapter
+type = forbidden
+source_modules =
+    farsight
+forbidden_modules =
+    spiceypy
+ignore_imports =
+    farsight.engines.spice -> spiceypy
+    farsight.engines.spice.* -> spiceypy
+; The exemption is declared before the adapter exists, which is the whole point: ADR-018 dates
+; this contract to week 3 so the rule is in place before the code it constrains. import-linter
+; treats an ignore that matches nothing as an error by default -- a good rule against stale
+; ignores, and the wrong one for an exemption written in advance -- so it warns here instead.
+; When engines/spice lands the warning disappears; if it ever reappears, the adapter stopped
+; importing spiceypy and the exemption is stale.
+unmatched_ignore_imports_alerting = warn
