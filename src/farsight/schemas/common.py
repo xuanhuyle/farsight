@@ -18,13 +18,15 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal
-from typing import Annotated, Any
+import datetime as _dt
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 __all__ = [
     "FrozenModel",
     "VersionedDocument",
+    "Provenance",
     "Quantity",
     "IntervalQ",
     "TimeSpanQ",
@@ -226,6 +228,51 @@ class VersionedDocument(FrozenModel):
     """
 
     schema_version: int = 1
+
+
+class Provenance(BaseModel):
+    """The unhashed half of a persisted object file (ADR-001 decision 4).
+
+    Every persisted object file has exactly two top-level keys, ``object`` and ``provenance``,
+    and ``content_hash = sha256(JCS(object))`` -- so nothing here changes what an object *is*.
+    That is the whole point: **if a creation time were inside the hashed document then nothing
+    would be reproducible by construction**, because freezing identical content twice would
+    produce two addresses.
+
+    Not unprotected, though. The whole file is hashed by path in the package file manifest
+    (ADR-007), so altering provenance is detectable at package level. The consequence ADR-001
+    states bluntly is worth repeating: **the hash does not attest to who froze the object.** That
+    attestation comes from the audit log, and later from a signature.
+
+    Deliberately not a :class:`FrozenModel`: it is never hashed, so the extra="forbid" and
+    validate_default guarantees that exist to protect identity have nothing to protect here. It
+    is frozen for ordinary safety, and it forbids extras so a typo is still caught.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    created_at: _dt.datetime
+    frozen_by: str
+    authorization: Literal["attended", "unattended"]
+    tool_version: str
+    draft_id: str | None = None
+
+    @field_validator("created_at")
+    @classmethod
+    def _tz_aware(cls, v: _dt.datetime) -> _dt.datetime:
+        if v.tzinfo is None or v.utcoffset() is None:
+            raise ValueError(
+                "created_at must carry a UTC offset. A naive timestamp means something "
+                "different to every reader, and this one records when a human froze an object."
+            )
+        return v
+
+    @field_validator("frozen_by", "tool_version")
+    @classmethod
+    def _non_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("provenance names who froze the object and with what tool version")
+        return v
 
 
 class Quantity(FrozenModel):

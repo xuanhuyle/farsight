@@ -121,6 +121,82 @@ subtree form that expands to explicit paths at freeze — the same materialize-a
 
 ---
 
+## DEV-12 — `DataArtifact` carries no `fetched_at_utc`
+
+**Record:** [ADR-012](ADR-012-offline-security-foundations.md) decision 1 sketches the record
+`farsight fetch` writes as `{url, sha256, size_bytes, fetched_at_utc, modified: false,
+license_note}`; [ADR-001](ADR-001-content-addressed-identity.md) decision 4 puts timestamps in the
+unhashed `provenance` half
+**Code:** `src/farsight/schemas/knowledge.py` — `DataArtifact`
+
+**What differs.** Five of the six sketched fields are implemented. `fetched_at_utc` is not a field
+on the hashed object; when the artifact is stored it belongs in the envelope's `provenance` half
+beside `created_at`.
+
+**Why.** The two records contradict each other and only one reading survives. If the fetch time
+were inside the hashed half, **two fetches of identical bytes would produce two different
+addresses** — destroying the deduplication that `Referent.artifact_refs` and the kernel cache both
+rely on, and contradicting ADR-001's own reason for the split: "if a creation time is inside the
+hashed document then nothing is ever reproducible by construction". ADR-016 applies the same rule
+explicitly to `CoverageAttestation.produced_by` ("no timestamp (ADR-001 rule 4)"), so the corpus
+is consistent everywhere except this one sketch.
+
+`url` stays inside the hash, because ADR-016's KERN-2 check is that "the `DataArtifact` carries
+the source URL" — a publisher not covered by the digest is a provenance claim nothing protects.
+
+**Consequence if this is the wrong call.** "When did we fetch this" stops being part of the
+artifact's identity, so two records of the same bytes fetched years apart are one object. That is
+the intent; if a caller ever needs to distinguish them, the distinction belongs in the audit log
+(ADR-012), which already records a `fetch` action with a timestamp and is the place the corpus
+puts that question.
+
+**Also unreconciled, and not resolved here.** `DataArtifact{url, sha256, size_bytes, modified,
+license_note}` and ADR-016's `KernelRef{sha256, kernel_type, logical_name, size_bytes,
+attribution, modifier, parent_sha256, license_note}` describe the same bytes with different
+fields, and no record says how they relate. `KernelRef` lands with the kernel cache; whichever
+record defines it should state the relationship rather than leave two overlapping descriptions.
+
+**Closes by:** an ADR defining `DataArtifact`, which should state the field split explicitly and
+reconcile it with `KernelRef`.
+
+**Status:** internally cross-checked. Not externally expert-reviewed.
+
+---
+
+## DEV-13 — the object store is files, and the plan's §6 line says SQLite
+
+**Record:** `FARSIGHT_FOUNDATION_PLAN.md` §6 — `registry/ # object store (SQLite:
+objects/aliases/edges), kernel cache, audit log`; [ADR-011](ADR-011-storage-and-persistence.md)
+decision 1 — "Object store (files). Frozen content-addressed documents at
+`objects/<first2>/<hash>.json`", and decision 6 — "SQLite is used for three tables and nothing
+else"
+**Code:** `src/farsight/registry/objects.py`
+
+**What differs.** The implementation follows ADR-011: objects are files, and SQLite holds exactly
+`runs`, `aliases` and `audit_log`. There is **no `objects` table and no `edges` table**.
+
+**Why.** ADR-011 is the later and more specific record, it gives its reasoning (an auditor should
+find JSON they can read in a text editor rather than a storage engine standing between them and
+the numbers), and ADR-017 independently forecloses edges as a stored relation — "never as an
+`edges` or `links` field". The plan line is stale.
+
+**What makes this worth recording rather than silently following.** ADR-000 makes the plan the
+authority and ADRs subordinate elaborations that "must not silently contradict it", and requires a
+departure to be declared as a `PLAN AMENDMENT REQUESTED` line. ADR-011 files amendment requests
+for other §6 items and **not** for this one, so the contradiction is undeclared. That is the D3
+shape: an accepted record and the plan disagree, the record is right, and nothing records it.
+
+**Consequence if this is the wrong call.** If the plan's line was the intent, the store would need
+an `objects` table and an `edges` table, and the second would reopen a relation ADR-017 closed
+deliberately. Both would be visible immediately, because the file layout is what `verify` and
+package build walk.
+
+**Closes by:** a `PLAN AMENDMENT REQUESTED` line on ADR-011, or a plan edit by the founder.
+
+**Status:** internally cross-checked. Not externally expert-reviewed.
+
+---
+
 ## DEV-11 — the design-scope tag is not outside the run-index range, and does not need to be
 
 **Record:** [ADR-005](ADR-005-seeding-and-replay.md) — "`SeedSequence(entropy=design_seed,

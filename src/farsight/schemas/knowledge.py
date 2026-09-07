@@ -59,6 +59,7 @@ from pydantic import Field, field_validator, model_validator
 from farsight.schemas.belief import Pedigree
 from farsight.schemas.common import (
     FrozenModel,
+    is_ref,
     MAX_SEGMENT_CHARS,
     Quantity,
     Ref,
@@ -67,6 +68,7 @@ from farsight.schemas.common import (
 )
 
 __all__ = [
+    "DataArtifact",
     "SourceOrigin",
     "EXTERNAL_PUBLICATION_ORIGINS",
     "IdentifierScheme",
@@ -159,6 +161,78 @@ def _check_id(v: str, field: str) -> str:
             f"objects sharing this name are still two objects."
         )
     return v
+
+
+class DataArtifact(VersionedDocument):
+    """The bytes a citation or a run actually consumed, identified by their own hash.
+
+    ADR-012 decision 1 sketches the record ``farsight fetch`` writes:
+    ``{url, sha256, size_bytes, fetched_at_utc, modified: false, license_note}``. It is the third
+    dangling referent the G2 work named and did not close -- reached by digest from
+    ``ArtifactSource.artifact_ref`` and ``RunSpec.inputs`` (``execution.py``), from
+    ``Source.artifact_refs`` here, and from ``Referent.artifact_refs`` when ADR-021's type lands.
+
+    **A Source is the publication; a DataArtifact is the bytes.** ADR-021 keeps them apart
+    deliberately, carrying both lists on a ``Referent``, and ADR-016 keeps the *bytes themselves*
+    out of the object store entirely: this record is a JSON document in ``objects/``, while the
+    file it describes lives in a parallel content-addressed cache. The reason is stated in
+    ADR-016's Option 6 -- the object store "is walked in full by ``verify``, by package build and
+    by dedup", so putting multi-hundred-megabyte kernels in that walk makes all three
+    proportional to kernel volume.
+
+    **``fetched_at_utc`` is absent, and its absence is a decision.** ADR-012's sketch lists it,
+    and ADR-001 decision 4 forbids it: a timestamp inside the hashed half would mean two fetches
+    of *identical bytes* produce two different addresses, which destroys the deduplication that
+    ``Referent.artifact_refs`` and the kernel cache both rely on -- and ADR-001 says plainly that
+    "if a creation time is inside the hashed document then nothing is ever reproducible by
+    construction". When it was fetched belongs in the ``provenance`` half of the envelope, beside
+    ``created_at``. Recorded as DEV-12.
+
+    ``url`` stays inside the hash, because ADR-016's ``KERN-2`` check is that "the
+    ``DataArtifact`` carries the source URL" -- a publisher that is not covered by the digest is
+    a provenance claim nothing protects.
+    """
+
+    url: str
+    sha256: str
+    size_bytes: int
+    modified: bool
+    license_note: str
+
+    @field_validator("sha256")
+    @classmethod
+    def _check_digest(cls, v: str) -> str:
+        if not is_ref(v):
+            raise ValueError(
+                f"sha256 {v!r} must be 64 lowercase hex with no algorithm prefix (ADR-001 "
+                f"rule 7). This is the hash of the BYTES, which is a different address from this "
+                f"record's own -- the record describes the bytes and is not them."
+            )
+        return v
+
+    @field_validator("url")
+    @classmethod
+    def _check_url(cls, v: str) -> str:
+        if not v.strip() or v.strip() != v:
+            raise ValueError("a data artifact names the URL it was fetched from")
+        return v
+
+    @field_validator("size_bytes")
+    @classmethod
+    def _check_size(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(f"size_bytes {v} is negative")
+        return v
+
+    @model_validator(mode="after")
+    def _check_attribution(self) -> "DataArtifact":
+        if self.modified and not self.license_note.strip():
+            raise ValueError(
+                "a modified artifact must carry a license note naming its modifier. ADR-012: "
+                "kernels are redistributed only unmodified, and the flag exists because a "
+                "modified kernel must be re-attributed."
+            )
+        return self
 
 
 class SourceIdentifier(FrozenModel):
