@@ -47,23 +47,24 @@ function here, and the ``no-naked-rng`` lint fails CI on any construction of ``n
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Final, Mapping
+from typing import Final
 
 import numpy as np
 
 __all__ = [
+    "DESIGN_SCOPE_TAG",
+    "RESERVED_STREAM_IDS",
+    "ROOT_SEED_BYTES",
     "STREAMS",
     "STREAM_REGISTRY_VERSION",
-    "RESERVED_STREAM_IDS",
-    "DESIGN_SCOPE_TAG",
-    "ROOT_SEED_BYTES",
     "SeedingError",
+    "derived_state",
     "new_root_seed",
+    "state_words",
     "stream_id_for",
     "stream_rng",
-    "state_words",
-    "derived_state",
 ]
 
 from farsight.schemas.errors import FarSightError
@@ -165,12 +166,16 @@ def state_words(root_seed: int, run_index: int, stream_id: int, n: int) -> list[
     """
     _check_key(root_seed, run_index, stream_id)
     if n < 1:
-        raise SeedingError(f"asked for {n} state words; a stream that consumed none is recorded as []")
+        raise SeedingError(
+            f"asked for {n} state words; a stream that consumed none is recorded as []"
+        )
     sequence = np.random.SeedSequence(entropy=root_seed, spawn_key=(run_index, stream_id))
     return [f"0x{int(w):08x}" for w in sequence.generate_state(n, dtype=np.uint32)]
 
 
-def derived_state(root_seed: int, run_index: int, words_per_stream: Mapping[str, int]) -> dict[str, list[str]]:
+def derived_state(
+    root_seed: int, run_index: int, words_per_stream: Mapping[str, int]
+) -> dict[str, list[str]]:
     """The ``derived_state`` block of a seed archive: the words each stream actually consumed.
 
     ``words_per_stream`` comes from the consumer, because how many words a run used is a fact

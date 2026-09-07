@@ -17,7 +17,6 @@ from farsight.schemas.design import (
     Claim,
     ClaimResult,
     canonical_falsifier_condition,
-    falsifier_restates,
     unregistered_claim_refs,
 )
 
@@ -35,22 +34,22 @@ FALSIFIER = (
 
 
 def claim(**over) -> Claim:
-    base = dict(
-        claim_id="dsoc_envelope",
-        sentence=(
+    base = {
+        "claim_id": "dsoc_envelope",
+        "sentence": (
             "At each frozen DSOC pass epoch, the achieved downlink rate is less than or equal to "
             "the predicted supportable-rate envelope, within one ladder step of its lower edge."
         ),
-        falsifier=FALSIFIER,
-        scope_conditions=["frozen public pass points only", "no per-pass atmospheric data used"],
-        criterion_ref=CRITERION,
-        referent_refs=[REFERENT],
-        run_set="dsoc_link",
-        tier="B",
-        cited_packages=[],
-        supersedes=None,
-        revision_reason=None,
-    )
+        "falsifier": FALSIFIER,
+        "scope_conditions": ["frozen public pass points only", "no per-pass atmospheric data used"],
+        "criterion_ref": CRITERION,
+        "referent_refs": [REFERENT],
+        "run_set": "dsoc_link",
+        "tier": "B",
+        "cited_packages": [],
+        "supersedes": None,
+        "revision_reason": None,
+    }
     return Claim(**{**base, **over})
 
 

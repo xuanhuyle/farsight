@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Final
 
-__all__ = ["PROVIDER_ID", "SUPPORTS_STEPPING", "REUSABLE_WORKER", "SEED_SCOPE", "CAPABILITIES"]
+__all__ = ["CAPABILITIES", "PROVIDER_ID", "REUSABLE_WORKER", "SEED_SCOPE", "SUPPORTS_STEPPING"]
 
 PROVIDER_ID: Final = "spice"
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-__all__ = ["farsight_home", "objects_root", "kernel_cache_root", "HOME_ENV_VAR"]
+__all__ = ["HOME_ENV_VAR", "farsight_home", "kernel_cache_root", "objects_root"]
 
 HOME_ENV_VAR = "FARSIGHT_HOME"
 

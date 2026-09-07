@@ -8,6 +8,7 @@ has -- and never that alteration is prevented.
 
 from __future__ import annotations
 
+import itertools
 import sqlite3
 
 import pytest
@@ -42,7 +43,7 @@ def test_each_row_links_to_the_one_before_it(tmp_path):
         log.append("run", {"design_path": "a.json"}, ts_utc=TS, actor="t"),
         log.append("package", {"out_dir": "pkg"}, ts_utc=TS, actor="t"),
     ]
-    for earlier, later in zip(rows, rows[1:]):
+    for earlier, later in itertools.pairwise(rows):
         assert later["prev_hash"] == earlier["row_hash"]
     log.verify_chain()
 

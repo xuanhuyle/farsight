@@ -54,7 +54,8 @@ import farsight.units.time  # noqa: F401
 from astropy.utils import iers
 print(iers.conf.auto_download, iers.conf.auto_max_age)
 """
-    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                          check=False)
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip() == "False None"
 
@@ -72,7 +73,7 @@ def test_the_two_implementations_agree_to_far_better_than_a_time_system_error():
     Measured 2026-09-07 under the pinned naif0012.tls: the largest disagreement over the epochs
     below was 1.2e-4 s.
     """
-    spiceypy = pytest.importorskip("spiceypy")
+    pytest.importorskip("spiceypy")
     from farsight.engines.spice.kernels import furnished_pool
     from farsight.engines.spice.time import utc_to_et
     from farsight.registry.kernel_cache import KernelCache

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json as _json
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
@@ -36,18 +36,20 @@ def fetch_kernel_command(
         str, typer.Option("--expect-sha256", help="The digest the bytes must have. Required.")
     ],
     into: Annotated[
-        Optional[Path], typer.Option("--into", help="Cache root. Defaults to $FARSIGHT_HOME/kernels.")
+        Path | None, typer.Option("--into", help="Cache root. Defaults to $FARSIGHT_HOME/kernels.")
     ] = None,
     license_note: Annotated[
-        str, typer.Option("--license-note", help="Redistribution terms, recorded with the artifact.")
+        str,
+        typer.Option("--license-note",
+                     help="Redistribution terms, recorded with the artifact."),
     ] = "",
 ) -> None:
     """Fetch a kernel, verify it against the declared digest, and cache it."""
     # Imported here rather than at module scope so that `farsight --help` does not construct the
     # acquisition path at all. The network stays behind the verb that needs it.
-    from farsight.acquire.fetch import AcquisitionError, fetch_kernel  # noqa: PLC0415
-    from farsight.registry.kernel_cache import KernelCache  # noqa: PLC0415
-    from farsight.registry.paths import kernel_cache_root  # noqa: PLC0415
+    from farsight.acquire.fetch import AcquisitionError, fetch_kernel
+    from farsight.registry.kernel_cache import KernelCache
+    from farsight.registry.paths import kernel_cache_root
 
     options = ctx.obj or {}
     cache_root = into if into is not None else kernel_cache_root(options.get("home"))

@@ -41,27 +41,27 @@ def ident(scheme="standard_designation", value="810-005", part="104") -> SourceI
 
 
 def source(**over) -> Source:
-    base = dict(
-        source_id="dsn_810_005",
-        title="DSN Telecommunications Link Design Handbook, Module 104",
-        origin="standard_or_handbook",
-        issued="2024-09",
-        identifiers=[ident()],
-        artifact_refs=[HEX],
-    )
+    base = {
+        "source_id": "dsn_810_005",
+        "title": "DSN Telecommunications Link Design Handbook, Module 104",
+        "origin": "standard_or_handbook",
+        "issued": "2024-09",
+        "identifiers": [ident()],
+        "artifact_refs": [HEX],
+    }
     return Source(**{**base, **over})
 
 
 def assumption(**over) -> Assumption:
-    base = dict(
-        assumption_id="rx_train_bound",
-        statement="The Palomar receive optical train throughput is at least 0.30 end to end.",
-        consequence_if_false="Every DSOC link margin computed from it is optimistic.",
-        bound=AssumptionBound(lower=Quantity(magnitude="0.30", unit="1"), upper=None),
-        pedigree=ped(),
-        source_refs=[HEX],
-        review_by=None,
-    )
+    base = {
+        "assumption_id": "rx_train_bound",
+        "statement": "The Palomar receive optical train throughput is at least 0.30 end to end.",
+        "consequence_if_false": "Every DSOC link margin computed from it is optimistic.",
+        "bound": AssumptionBound(lower=Quantity(magnitude="0.30", unit="1"), upper=None),
+        "pedigree": ped(),
+        "source_refs": [HEX],
+        "review_by": None,
+    }
     return Assumption(**{**base, **over})
 
 

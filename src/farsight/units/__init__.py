@@ -56,12 +56,12 @@ from farsight.schemas.errors import FarSightError
 
 __all__ = [
     "UnitError",
-    "to_si",
-    "from_si",
-    "encode_float",
-    "si_unit",
-    "same_dimension",
     "convert",
+    "encode_float",
+    "from_si",
+    "same_dimension",
+    "si_unit",
+    "to_si",
 ]
 
 
@@ -84,7 +84,7 @@ def _unit(symbol: str):
     Imported inside the function so that importing ``farsight.units`` stays cheap and the astropy
     dependency is visible at its point of use rather than at module scope.
     """
-    from astropy import units as u  # noqa: PLC0415 - deliberate; see docstring
+    from astropy import units as u  # at point of use; see this function's docstring
 
     if not symbol or symbol.strip() != symbol:
         # astropy parses "" as dimensionless, which would give FarSight two spellings for one

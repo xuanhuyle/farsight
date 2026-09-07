@@ -23,13 +23,14 @@ the binary orientation PCK that supplies its data.
 
 from __future__ import annotations
 
-from typing import Literal, Mapping
+from collections.abc import Mapping
+from typing import Literal
 
 from pydantic import field_validator, model_validator
 
 from farsight.schemas.common import FrozenModel, VersionedDocument, is_ref
 
-__all__ = ["KernelType", "Attribution", "KernelRef", "KernelSet"]
+__all__ = ["Attribution", "KernelRef", "KernelSet", "KernelType"]
 
 KernelType = Literal["spk", "pck", "ck", "sclk", "lsk", "ik", "fk", "dsk", "ek"]
 
@@ -80,7 +81,7 @@ class KernelRef(FrozenModel):
         return v
 
     @model_validator(mode="after")
-    def _attribution_is_complete(self) -> "KernelRef":
+    def _attribution_is_complete(self) -> KernelRef:
         unmodified = self.attribution.endswith("_unmodified")
         if not unmodified and self.attribution != "farsight_authored" and not self.modifier:
             raise ValueError(
@@ -134,7 +135,7 @@ class KernelSet(VersionedDocument):
         return v
 
     @model_validator(mode="after")
-    def _frame_sources_resolve(self) -> "KernelSet":
+    def _frame_sources_resolve(self) -> KernelSet:
         present = {k.sha256 for k in self.kernels}
         for frame, sources in sorted(self.frame_sources.items()):
             if not sources:

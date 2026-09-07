@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json as _json
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
@@ -46,7 +46,7 @@ app = typer.Typer(
 
 def _version() -> str:
     """The installed distribution version, or a marker when running from a source tree."""
-    from importlib.metadata import PackageNotFoundError, version  # noqa: PLC0415
+    from importlib.metadata import PackageNotFoundError, version
 
     try:
         return version("farsight")
@@ -78,7 +78,7 @@ def main(
     ] = False,
     quiet: Annotated[bool, typer.Option("--quiet", help="Suppress progress output.")] = False,
     home: Annotated[
-        Optional[Path], typer.Option("--home", help="FarSight home directory.")
+        Path | None, typer.Option("--home", help="FarSight home directory.")
     ] = None,
     no_color: Annotated[bool, typer.Option("--no-color", help="Disable colour.")] = False,
 ) -> None:

@@ -69,37 +69,35 @@ run yet and say so where they would be checked, rather than passing silently (se
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from farsight.schemas.errors import SpecCompositionError
 from farsight.schemas.common import (
     FrozenModel,
-    MAX_SEGMENT_CHARS,
     Quantity,
     Ref,
-    SEGMENT_RE,
-    validate_segment,
     VersionedDocument,
     is_under,
     validate_path,
+    validate_segment,
 )
+from farsight.schemas.errors import SpecCompositionError
 
 __all__ = [
-    "SpecCompositionError",
-    "ValueOrigin",
-    "GridRef",
-    "ChannelSource",
+    "STAGE_INPUT_MEMBERS",
     "ArtifactSource",
-    "ValueSource",
+    "ChannelSource",
+    "GridRef",
+    "RunSpec",
+    "SpecCompositionError",
     "StageInput",
     "StageModel",
     "StageSpec",
-    "RunSpec",
-    "STAGE_INPUT_MEMBERS",
-    "models_for_path",
+    "ValueOrigin",
+    "ValueSource",
     "model_versions",
+    "models_for_path",
     "parameter_paths",
     "paths_reaching_stage",
     "value_sources_for_path",
@@ -238,7 +236,7 @@ class ValueSource(FrozenModel):
         return validate_path(v)
 
     @model_validator(mode="after")
-    def _check_group_member(self) -> "ValueSource":
+    def _check_group_member(self) -> ValueSource:
         if self.group_member is None:
             return self
         try:
@@ -263,7 +261,7 @@ class ValueSource(FrozenModel):
 
 
 StageInput = Annotated[
-    Union[ChannelSource, ArtifactSource, ValueSource],
+    ChannelSource | ArtifactSource | ValueSource,
     Field(discriminator="kind"),
 ]
 
@@ -417,7 +415,10 @@ class StageSpec(FrozenModel):
         for name in v:
             validate_path(name)
         if len(set(v)) != len(v):
-            raise ValueError(f"stage emits a channel name twice: {sorted({c for c in v if v.count(c) > 1})}")
+            raise ValueError(
+                f"stage emits a channel name twice: "
+                f"{sorted({c for c in v if v.count(c) > 1})}"
+            )
         if v != sorted(v):
             raise ValueError(
                 "emitted channel names must be byte-wise sorted, so that two stages emitting the "
@@ -471,11 +472,13 @@ class RunSpec(VersionedDocument):
     @classmethod
     def _check_index(cls, v: int) -> int:
         if v < 0:
-            raise ValueError("run_index is a position in a deterministic enumeration, never negative")
+            raise ValueError(
+                "run_index is a position in a deterministic enumeration, never negative"
+            )
         return v
 
     @model_validator(mode="after")
-    def _compose(self) -> "RunSpec":
+    def _compose(self) -> RunSpec:  # noqa: PLR0912 - ADR-018's rules, read as one list
         stages = self.stages
 
         # Rule 6 -- a run must contain at least one stage.
@@ -640,30 +643,30 @@ class RunSpec(VersionedDocument):
         ``knowledge.py`` exists, so the honest form is a declared absence rather than silence.
         """
         return [
-            "rule 1 (resolution half): each stage_id resolves to a node in the run's "
-            "SystemTopology -- needs schemas/knowledge.py",
-            "rule 5: a ConditionSchedule predicate over an engine channel requires that provider "
+            ("rule 1 (resolution half): each stage_id resolves to a node in the run's "
+            "SystemTopology -- needs schemas/knowledge.py"),
+            ("rule 5: a ConditionSchedule predicate over an engine channel requires that provider "
             "to declare supports_stepping -- needs schemas/faults.py and the engine capability "
-            "registry",
-            "binding completeness (ADR-017 decision 5): every ParameterDecl under an active "
+            "registry"),
+            ("binding completeness (ADR-017 decision 5): every ParameterDecl under an active "
             "subtree is bound exactly once, and neither a value nor a model selection arrives "
             "by a route that skips a declaration -- needs schemas/knowledge.py. This is the "
-            "check that bounds the ArtifactSource and config_ref gaps in the module docstring",
-            "model_refs_resolve at the run site (ADR-026 Enforcement 2): every "
+            "check that bounds the ArtifactSource and config_ref gaps in the module docstring"),
+            ("model_refs_resolve at the run site (ADR-026 Enforcement 2): every "
             "StageModel.model_version_ref resolves to a ModelVersion object present in the "
             "package -- needs schemas/knowledge.py. The accepted validator is worded over "
-            "references in a DESIGN; D1 created a second population of them in the RunSpec",
-            "model selection agreement: each StageModel.model_version_ref is one of the members "
+            "references in a DESIGN; D1 created a second population of them in the RunSpec"),
+            ("model selection agreement: each StageModel.model_version_ref is one of the members "
             "of the EpistemicSet bound at its path, and a path=None selection is not one a "
             "parameter actually chose -- needs schemas/design.py. This is the model-side "
-            "counterpart of origin agreement, and without it a selection is a planner assertion",
-            "model_binding_consistent (ADR-026): a ModelVersion with an engine_native binding "
+            "counterpart of origin agreement, and without it a selection is a planner assertion"),
+            ("model_binding_consistent (ADR-026): a ModelVersion with an engine_native binding "
             "names an engine_id and a config_dialect, and every StageSpec naming it carries a "
             "config_ref whose dialect matches -- needs schemas/knowledge.py. This schema "
-            "supplies the edge the validator quantifies over; it cannot yet resolve the digest",
-            "origin agreement: each ValueSource's declared origin and magnitude match the belief "
+            "supplies the edge the validator quantifies over; it cannot yet resolve the digest"),
+            ("origin agreement: each ValueSource's declared origin and magnitude match the belief "
             "actually bound at its path in the frozen design -- needs schemas/design.py. Until "
-            "it runs, an origin is a planner assertion this schema records but does not prove",
+            "it runs, an origin is a planner assertion this schema records but does not prove"),
         ]
 
 

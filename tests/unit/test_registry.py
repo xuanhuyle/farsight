@@ -12,11 +12,12 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from farsight.hashing.canonical import content_hash
 from farsight.registry.atomic import AtomicWriteError, write_atomic
 from farsight.registry.objects import ObjectStore, ObjectStoreError, object_address
-from farsight.schemas.common import Provenance, Quantity
+from farsight.schemas.common import Provenance
 from farsight.schemas.knowledge import DataArtifact
 
 REPO = Path(__file__).resolve().parents[2]
@@ -26,23 +27,23 @@ import datetime as dt
 
 
 def prov(**over) -> Provenance:
-    base = dict(
-        created_at=dt.datetime(2026, 9, 7, 12, 0, tzinfo=dt.timezone.utc),
-        frozen_by="operator:jh",
-        authorization="attended",
-        tool_version="0.0.1",
-    )
+    base = {
+        "created_at": dt.datetime(2026, 9, 7, 12, 0, tzinfo=dt.UTC),
+        "frozen_by": "operator:jh",
+        "authorization": "attended",
+        "tool_version": "0.0.1",
+    }
     return Provenance(**{**base, **over})
 
 
 def artifact(**over) -> DataArtifact:
-    base = dict(
-        url="https://naif.jpl.nasa.gov/pub/naif/generic_kernels/lsk/naif0012.tls",
-        sha256="b" * 64,
-        size_bytes=5386,
-        modified=False,
-        license_note="NAIF: public domain, no restrictions on redistribution.",
-    )
+    base = {
+        "url": "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/lsk/naif0012.tls",
+        "sha256": "b" * 64,
+        "size_bytes": 5386,
+        "modified": False,
+        "license_note": "NAIF: public domain, no restrictions on redistribution.",
+    }
     return DataArtifact(**{**base, **over})
 
 
@@ -155,7 +156,7 @@ def test_the_provenance_half_does_not_change_the_address(tmp_path):
     other = ObjectStore(tmp_path / "other")
     second = other.put(
         artifact(),
-        prov(created_at=dt.datetime(2029, 1, 1, tzinfo=dt.timezone.utc), frozen_by="operator:xy"),
+        prov(created_at=dt.datetime(2029, 1, 1, tzinfo=dt.UTC), frozen_by="operator:xy"),
     )
     assert first == second
 
@@ -250,7 +251,7 @@ def test_a_data_artifact_carries_no_timestamp(tmp_path):
     Two fetches of identical bytes must produce one address, or the dedup that
     `Referent.artifact_refs` and the kernel cache rely on is gone."""
     assert "fetched_at_utc" not in DataArtifact.model_fields
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         DataArtifact(
             url="https://x/y", sha256="b" * 64, size_bytes=1, modified=False,
             license_note="n", fetched_at_utc="2026-09-07T00:00:00Z",
@@ -313,7 +314,8 @@ def test_nothing_writes_a_file_except_the_atomic_helper():
             elif isinstance(func, ast.Attribute) and func.attr in _WRITE_CALLS:
                 offenders.append(f"{rel}:{node.lineno}: .{func.attr}()")
     assert not offenders, (
-        "file writes outside the atomic helper (ADR-011 Enforcement 10):\n  " + "\n  ".join(offenders)
+        "file writes outside the atomic helper (ADR-011 Enforcement 10):\n  "
+        + "\n  ".join(offenders)
     )
 
 
@@ -362,7 +364,8 @@ def test_provenance_requires_an_unambiguous_timestamp():
     timestamp means something different to every reader."""
     prov()
     with pytest.raises(Exception, match="UTC offset"):
-        prov(created_at=dt.datetime(2026, 9, 7, 12, 0))
+        # Naive ON PURPOSE: the refusal is the assertion.
+        prov(created_at=dt.datetime(2026, 9, 7, 12, 0))  # noqa: DTZ001
 
 
 def test_provenance_names_who_froze_it_and_with_what():
@@ -377,5 +380,5 @@ def test_provenance_names_who_froze_it_and_with_what():
 
 def test_authorization_is_a_closed_pair():
     prov(authorization="unattended")
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         prov(authorization="semi_attended")

@@ -34,11 +34,11 @@ from farsight.schemas.common import is_ref
 from farsight.schemas.errors import FarSightError
 
 __all__ = [
-    "KernelCacheError",
+    "READ_CHUNK_BYTES",
     "KernelCache",
+    "KernelCacheError",
     "sha256_bytes",
     "sha256_file",
-    "READ_CHUNK_BYTES",
 ]
 
 # Files here are large, so hashing streams rather than loading. 1 MiB is a compromise between
@@ -59,7 +59,8 @@ def sha256_bytes(data: bytes) -> str:
 def sha256_file(path: str | Path) -> str:
     """Stream a file and return its digest, without loading it into memory."""
     digest = hashlib.sha256()
-    with open(path, "rb") as handle:  # noqa: FS001 - read-only; the write lint targets writes
+    # Read-only: the repo's atomic-write lint targets writes. `FS001` is not a ruff rule.
+    with open(path, "rb") as handle:
         while chunk := handle.read(READ_CHUNK_BYTES):
             digest.update(chunk)
     return digest.hexdigest()

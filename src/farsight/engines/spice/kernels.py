@@ -25,9 +25,9 @@ between runs is how one run's kernels become another's silent input.
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Sequence
 
 from farsight.registry.kernel_cache import KernelCache
 from farsight.schemas.errors import MissingEngineExtra, UnhonorableSpec
@@ -39,7 +39,14 @@ from farsight.schemas.kernels import KernelRef
 # boundary, so a freeze-time exception raised here could never reach the parent as itself. What
 # it means is still "this spec should not have reached me" -- ADR-023 reads a worker-side refusal
 # as a report that the freeze-time completeness check has a hole.
-__all__ = ["UnhonorableSpec", "MissingEngineExtra", "furnish_in_order", "clear_pool", "furnished_pool", "loaded_count"]
+__all__ = [
+    "MissingEngineExtra",
+    "UnhonorableSpec",
+    "clear_pool",
+    "furnish_in_order",
+    "furnished_pool",
+    "loaded_count",
+]
 
 
 def _spiceypy():
@@ -50,7 +57,7 @@ def _spiceypy():
     a planner that merely inspects this module should not need a compiled CSPICE.
     """
     try:
-        import spiceypy  # noqa: PLC0415 - deliberate; see docstring
+        import spiceypy  # imported at point of use; see this function's docstring
     except ImportError as exc:  # pragma: no cover - exercised by the auditor install, not by CI
         raise MissingEngineExtra(
             "the `spice` extra is not installed, so no kernel can be furnished. This is the "

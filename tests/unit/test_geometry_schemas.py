@@ -48,10 +48,10 @@ def _grid(step: str = "60", n: int = 4) -> UniformGrid:
 
 
 def _request(**over) -> GeometryRequest:
-    base = dict(
-        target="PSYCHE", observer="EARTH", frame="J2000",
-        aberration="CN", quantity_class="range", epochs="a" * 64, rationale=None,
-    )
+    base = {
+        "target": "PSYCHE", "observer": "EARTH", "frame": "J2000",
+        "aberration": "CN", "quantity_class": "range", "epochs": "a" * 64, "rationale": None,
+    }
     base.update(over)
     return GeometryRequest(**base)
 
@@ -75,10 +75,10 @@ def test_geometry_request_has_no_defaults():
         )
 
     for missing in ("target", "observer", "frame", "aberration", "quantity_class", "epochs"):
-        fields = dict(
-            target="X", observer="Y", frame="J2000", aberration="CN",
-            quantity_class="range", epochs="a" * 64, rationale=None,
-        )
+        fields = {
+            "target": "X", "observer": "Y", "frame": "J2000", "aberration": "CN",
+            "quantity_class": "range", "epochs": "a" * 64, "rationale": None,
+        }
         del fields[missing]
         with pytest.raises(ValidationError):
             GeometryRequest(**fields)
@@ -132,9 +132,9 @@ def test_no_literal_aberration_string_outside_the_module_that_defines_the_enum()
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                if node.value in members:
-                    offenders.append(
+            if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                    and node.value in members):
+                offenders.append(
                         f"{path.relative_to(REPO).as_posix()}:{node.lineno}: {node.value!r}"
                     )
 

@@ -37,11 +37,11 @@ from __future__ import annotations
 __all__ = [
     "FarSightError",
     "FreezeTimeError",
-    "SpecCompositionError",
     "KernelCoverageError",
-    "WorkerError",
-    "UnhonorableSpec",
     "MissingEngineExtra",
+    "SpecCompositionError",
+    "UnhonorableSpec",
+    "WorkerError",
 ]
 
 

@@ -35,7 +35,7 @@ from farsight.registry.atomic import write_atomic
 from farsight.schemas.common import Provenance, is_ref
 from farsight.schemas.errors import FarSightError
 
-__all__ = ["ObjectStoreError", "ObjectStore"]
+__all__ = ["ObjectStore", "ObjectStoreError"]
 
 
 class ObjectStoreError(FarSightError, ValueError):
@@ -83,7 +83,8 @@ class ObjectStore:
         # it already was, above, to produce `ref`. The envelope file's own bytes are protected by
         # the package file manifest (ADR-007), not by being canonical themselves. Newline "\n"
         # explicitly so Windows text translation cannot change what lands on disk.
-        write_atomic(destination, (json.dumps(envelope, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+        payload = json.dumps(envelope, indent=2, sort_keys=True) + "\n"
+        write_atomic(destination, payload.encode("utf-8"))
         return ref
 
     def get(self, ref: str) -> dict[str, Any]:
@@ -154,4 +155,4 @@ def object_address(obj: Any) -> str:
 
 
 # Re-exported so callers do not reach into the hashing package for the one thing they need here.
-__all__ += ["envelope_bytes", "object_address", "canonical_bytes"]
+__all__ += ["canonical_bytes", "envelope_bytes", "object_address"]

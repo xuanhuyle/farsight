@@ -58,28 +58,27 @@ belongs in the unhashed provenance half of the object file.
 
 from __future__ import annotations
 
-from typing import Iterable, Literal
+from collections.abc import Iterable
+from typing import Literal
 
 from pydantic import field_validator, model_validator
 
 from farsight.schemas.common import (
     FrozenModel,
-    MAX_SEGMENT_CHARS,
     Quantity,
     Ref,
-    SEGMENT_RE,
-    validate_segment,
     VersionedDocument,
+    validate_segment,
 )
 
 __all__ = [
-    "Verdict",
-    "Comparator",
     "NEGATED",
-    "ReproducibilityTier",
-    "ClaimRevisionReason",
     "Claim",
     "ClaimResult",
+    "ClaimRevisionReason",
+    "Comparator",
+    "ReproducibilityTier",
+    "Verdict",
     "canonical_falsifier_condition",
     "falsifier_restates",
     "unregistered_claim_refs",
@@ -233,7 +232,7 @@ class Claim(VersionedDocument):
         return v
 
     @model_validator(mode="after")
-    def _check(self) -> "Claim":
+    def _check(self) -> Claim:
         if not self.referent_refs:
             raise ValueError(
                 "a claim is scored against at least one Referent (ADR-007: verify fails a "

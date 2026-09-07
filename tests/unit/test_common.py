@@ -17,18 +17,18 @@ from pydantic import BaseModel, ValidationError
 from farsight.hashing.canonical import canonicalize, content_hash
 from farsight.schemas.common import (
     DECIMAL_RE,
-    FrozenModel,
-    IntervalQ,
     MAX_PATH_CHARS,
     MAX_PATH_SEGMENTS,
+    FrozenModel,
+    IntervalQ,
     Quantity,
     Ref,
     TimeSpanQ,
     ValidityEnvelope,
     VersionedDocument,
     is_ref,
-    validate_path,
     normalize_decimal,
+    validate_path,
 )
 
 # --------------------------------------------------------------------------------------
@@ -240,7 +240,8 @@ def test_model_copy_runs_validators_on_every_frozen_model():
         m.model_copy(update={"unexpected": 1})  # extra="forbid" applies to copies too
 
     assert m.model_copy().value == m.value  # no update: unchanged, and still cheap
-    assert m.model_copy(update={"value": Quantity(magnitude="0.23", unit="m")}).value.magnitude == "0.23"
+    copied = m.model_copy(update={"value": Quantity(magnitude="0.23", unit="m")})
+    assert copied.value.magnitude == "0.23"
 
 
 def test_versioned_document_carries_a_version_and_plain_models_do_not():

@@ -19,21 +19,22 @@ import hashlib
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 spiceypy = pytest.importorskip(
     "spiceypy", reason="the `spice` extra is not installed -- the auditor's install, and fine"
 )
 
-from farsight.engines.spice import time as spice_time  # noqa: E402
-from farsight.engines.spice.kernels import (  # noqa: E402
+from farsight.engines.spice import time as spice_time
+from farsight.engines.spice.kernels import (
     UnhonorableSpec,
     clear_pool,
     furnish_in_order,
     furnished_pool,
     loaded_count,
 )
-from farsight.registry.kernel_cache import KernelCache  # noqa: E402
-from farsight.schemas.kernels import KernelRef, KernelSet  # noqa: E402
+from farsight.registry.kernel_cache import KernelCache
+from farsight.schemas.kernels import KernelRef, KernelSet
 
 REPO = Path(__file__).resolve().parents[2]
 SRC = REPO / "src" / "farsight"
@@ -152,9 +153,8 @@ def test_the_pool_gains_exactly_what_was_furnished(cache):
 
 def test_the_pool_is_cleared_even_when_the_block_raises(cache):
     """A pool left furnished by a failing run becomes the next run's silent input."""
-    with pytest.raises(RuntimeError):
-        with furnished_pool([_ref(BASE_LSK)], cache):
-            raise RuntimeError("something failed mid-run")
+    with pytest.raises(RuntimeError), furnished_pool([_ref(BASE_LSK)], cache):
+        raise RuntimeError("something failed mid-run")
     assert loaded_count() == 0
 
 
@@ -171,7 +171,6 @@ def test_a_kernel_missing_from_the_cache_is_refused(cache, tmp_path):
 def test_a_silently_skipped_furnish_is_caught(cache, monkeypatch):
     """CSPICE declines to load a file it cannot parse and carries on. Without the count, that
     shows up later as a missing frame or a wrong value, far from its cause."""
-    import farsight.engines.spice.kernels as kernels_module
 
     real = spiceypy.furnsh
     monkeypatch.setattr(spiceypy, "furnsh", lambda _p: None)  # load nothing, raise nothing
@@ -200,9 +199,9 @@ def test_an_uncovered_epoch_is_refused(cache):
 def test_the_refusal_names_the_measured_cost(cache):
     """The message has to say why, or the next reader relaxes the check to get their run to
     start."""
-    with furnished_pool([_ref(BASE_LSK)], cache):
-        with pytest.raises(spice_time.EpochCoverageError) as caught:
-            spice_time.utc_to_et("1980-01-01T00:00:00")
+    with (furnished_pool([_ref(BASE_LSK)], cache),
+          pytest.raises(spice_time.EpochCoverageError) as caught):
+        spice_time.utc_to_et("1980-01-01T00:00:00")
     message = str(caught.value)
     assert "extrapolates" in message and "16 seconds" in message
 
@@ -220,7 +219,8 @@ def test_a_hand_computed_conversion_still_holds(cache):
     read out of the kernel."""
     with furnished_pool([_ref(BASE_LSK)], cache):
         et = spice_time.utc_to_et(DSOC_EPOCH_UTC)
-        assert abs(spice_time.delta_et_utc(et) - (37 + spice_time.DEFINITIONAL_TT_MINUS_TAI)) < 0.002
+        expected = 37 + spice_time.DEFINITIONAL_TT_MINUS_TAI
+        assert abs(spice_time.delta_et_utc(et) - expected) < 0.002
         assert spice_time.et_to_utc(et) == DSOC_EPOCH_UTC + ".000"
 
 
@@ -276,7 +276,7 @@ def test_no_metakernel_syntax_appears_anywhere():
 
 def test_kernel_type_cannot_express_a_metakernel():
     """Closure by inexpressibility: `mk` is absent from the enum, so the input cannot say it."""
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         _ref(BASE_LSK).model_copy(update={"kernel_type": "mk"})
 
 

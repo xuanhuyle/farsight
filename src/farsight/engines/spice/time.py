@@ -30,14 +30,14 @@ from typing import Final
 from farsight.schemas.errors import UnhonorableSpec
 
 __all__ = [
-    "EpochCoverageError",
-    "utc_to_et",
-    "et_to_utc",
-    "delta_et_utc",
-    "leapsecond_table",
-    "coverage_start_et",
-    "check_epoch_covered",
     "DEFINITIONAL_TT_MINUS_TAI",
+    "EpochCoverageError",
+    "check_epoch_covered",
+    "coverage_start_et",
+    "delta_et_utc",
+    "et_to_utc",
+    "leapsecond_table",
+    "utc_to_et",
 ]
 
 # The definitional TT - TAI offset. Not measured, not read from a kernel: fixed by the definition
@@ -61,7 +61,7 @@ class EpochCoverageError(UnhonorableSpec):
 
 
 def _spiceypy():
-    from farsight.engines.spice.kernels import _spiceypy as _get  # noqa: PLC0415
+    from farsight.engines.spice.kernels import _spiceypy as _get
 
     return _get()
 
@@ -73,7 +73,7 @@ def leapsecond_table() -> list[tuple[float, float]]:
     including any override by a later kernel in the furnish order.
     """
     spiceypy = _spiceypy()
-    from spiceypy.utils.exceptions import NotFoundError  # noqa: PLC0415 - see module docstring
+    from spiceypy.utils.exceptions import NotFoundError  # at point of use; see the docstring
 
     try:
         count, _kind = spiceypy.dtpool("DELTET/DELTA_AT")

@@ -126,7 +126,7 @@ def _os_user() -> str:
     """
     try:
         return getpass.getuser()
-    except Exception:
+    except Exception:  # noqa: BLE001 - see docstring
         return UNKNOWN_ACTOR
 
 
@@ -210,7 +210,9 @@ class AuditLog:
                 "SELECT row_hash FROM audit_log ORDER BY seq DESC LIMIT 1"
             ).fetchone()
             prev_hash = prev[0] if prev else GENESIS_PREV_HASH
-            next_seq = (conn.execute("SELECT COALESCE(MAX(seq), 0) FROM audit_log").fetchone()[0]) + 1
+            next_seq = conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) FROM audit_log"
+            ).fetchone()[0] + 1
 
             row = {
                 "seq": next_seq,

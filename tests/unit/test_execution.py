@@ -597,7 +597,7 @@ def test_an_artifact_a_run_consumes_must_be_declared_in_its_inputs():
     declare sits outside the package's input closure, so replay could not resolve it -- and it
     is pure set containment over documents already in hand, so leaving it unchecked was a claim
     the code did not keep."""
-    with pytest.raises(SpecCompositionError, match="not listed in RunSpec.inputs"):
+    with pytest.raises(SpecCompositionError, match=r"not listed in RunSpec\.inputs"):
         RunSpec(experiment_hash=HEX, run_index=0, stages=[
             stage("s", bindings={"table": ArtifactSource(artifact_ref="c" * 64)}),
         ])

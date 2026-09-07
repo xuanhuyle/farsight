@@ -25,45 +25,43 @@ from __future__ import annotations
 
 import datetime as _dt
 from collections.abc import Iterable
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
 from farsight.schemas.common import (
-    FrozenModel,
-    IntervalQ,
-    MAX_SEGMENT_CHARS,
     MIN_JUSTIFICATION_CHARS,
     MIN_RATIONALE_CHARS,
     MIN_UNKNOWN_STATEMENT_CHARS,
+    FrozenModel,
+    IntervalQ,
     Quantity,
     Ref,
-    SEGMENT_RE,
-    validate_segment,
     ValidityEnvelope,
     VersionedDocument,
     validate_path,
+    validate_segment,
 )
 from farsight.schemas.expr import Derivation
 
 __all__ = [
-    "PedigreeLevel",
-    "Pedigree",
-    "SamplingScope",
-    "PerGroup",
-    "Distribution",
-    "SweepDeclaration",
-    "Deterministic",
+    "MACHINE_AUTHORIZER_PREFIX",
+    "PERMITTED_FAMILIES",
     "Aleatory",
-    "EpistemicInterval",
-    "EpistemicSet",
-    "Unknown",
     "Belief",
     "CollapseScope",
+    "Deterministic",
+    "Distribution",
     "EpistemicCollapse",
-    "MACHINE_AUTHORIZER_PREFIX",
+    "EpistemicInterval",
+    "EpistemicSet",
+    "Pedigree",
+    "PedigreeLevel",
+    "PerGroup",
+    "SamplingScope",
+    "SweepDeclaration",
+    "Unknown",
     "is_epistemic",
-    "PERMITTED_FAMILIES",
 ]
 
 # ADR-022 decision 1: a closed family list, because FarSight implements every transformation
@@ -98,7 +96,7 @@ class Pedigree(FrozenModel):
     assessed_on: _dt.date
 
     @model_validator(mode="after")
-    def _sources_required(self) -> "Pedigree":
+    def _sources_required(self) -> Pedigree:
         if self.level != "speculative" and not self.sources:
             raise ValueError(
                 f"pedigree level {self.level!r} claims provenance and must cite at least one "
@@ -122,7 +120,7 @@ class PerGroup(FrozenModel):
 
 # ADR-027 retires `per_pass`: it had no referent, since no record defined how a scenario
 # declares a pass, and it put comms-mission vocabulary in the bottom of the schema stack.
-SamplingScope = Union[Literal["per_run", "per_experiment"], PerGroup]
+SamplingScope = Literal["per_run", "per_experiment"] | PerGroup
 
 
 class Distribution(FrozenModel):
@@ -141,7 +139,7 @@ class Distribution(FrozenModel):
     """
 
     family: str
-    params: dict[str, Union[Quantity, "EpistemicInterval", "EpistemicSet"]]
+    params: dict[str, Quantity | EpistemicInterval | EpistemicSet]
 
     @field_validator("family")
     @classmethod
@@ -209,7 +207,7 @@ class Deterministic(_BeliefBase):
     derivation: Derivation | None = None
 
     @model_validator(mode="after")
-    def _derivation_matches_pedigree(self) -> "Deterministic":
+    def _derivation_matches_pedigree(self) -> Deterministic:
         """A derived value may not claim to have been measured.
 
         ADR-029 fixes ``pedigree.level: "derived_analysis"`` for a materialized derivation. The
@@ -231,7 +229,9 @@ class Deterministic(_BeliefBase):
             )
         return self
 
-    def sample(self, rng: Any) -> float:  # noqa: ARG002 - signature parity with Aleatory
+    # `rng` is unused on purpose: signature parity with Aleatory is what lets a caller hold
+    # either without asking which it has.
+    def sample(self, rng: Any) -> float:
         """The value in its declared unit, as float64.
 
         Takes ``rng`` it does not use, so that the planner can call ``sample`` uniformly across
@@ -259,7 +259,7 @@ class Aleatory(_BeliefBase):
     def is_resolved(self) -> bool:
         return self.distribution.is_resolved()
 
-    def at(self, point: dict[str, Quantity]) -> "Aleatory":
+    def at(self, point: dict[str, Quantity]) -> Aleatory:
         """Return a copy with epistemic hyperparameters substituted from an outer point.
 
         ``point`` maps parameter name to the concrete quantity that outer coordinate takes.
@@ -359,7 +359,7 @@ class EpistemicInterval(_EpistemicBase):
     upper: Quantity
 
     @model_validator(mode="after")
-    def _check_bounds(self) -> "EpistemicInterval":
+    def _check_bounds(self) -> EpistemicInterval:
         IntervalQ(lower=self.lower, upper=self.upper)  # reuse the ordering and unit checks
         return self
 
@@ -454,7 +454,7 @@ class Unknown(_BeliefBase):
 
 
 Belief = Annotated[
-    Union[Deterministic, Aleatory, EpistemicInterval, EpistemicSet, Unknown],
+    Deterministic | Aleatory | EpistemicInterval | EpistemicSet | Unknown,
     Field(discriminator="kind"),
 ]
 
@@ -560,7 +560,7 @@ class EpistemicCollapse(VersionedDocument):
 
     collapse_id: str
     original_belief: Belief
-    chosen: Union[Deterministic, Aleatory]
+    chosen: Deterministic | Aleatory
     justification: str
     authorizer: str
     authorized_on: _dt.datetime
@@ -617,7 +617,7 @@ class EpistemicCollapse(VersionedDocument):
         return v
 
     @model_validator(mode="after")
-    def _check_authorization(self) -> "EpistemicCollapse":
+    def _check_authorization(self) -> EpistemicCollapse:
         authorizer = self.authorizer.strip()
         if not authorizer:
             raise ValueError("a collapse is authorized by a named human, never by nobody")

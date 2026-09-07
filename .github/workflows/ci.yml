@@ -23,6 +23,13 @@ jobs:
         run: python -m pytest tests/unit -q
       - name: import boundaries
         run: lint-imports
+      - name: lint
+        # The rule set is pinned in `[tool.ruff.lint]` and the ruff version in the `dev` extra,
+        # so this job checks what the repository decided rather than what the tool currently
+        # defaults to. Without both pins the build would start failing on ruff's release
+        # schedule -- the same shape as ADR-006's warning about base-image updates forcing a
+        # re-golding cycle on someone else's schedule.
+        run: ruff check src tests
       - name: console script resolves
         # ADR-024: command names and exit codes are printed into shipped evidence packages, so
         # the entry point is part of the contract. `pyproject.toml` declared

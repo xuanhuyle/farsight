@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from farsight.acquire.fetch import AcquisitionError, MAX_FETCH_BYTES, fetch_kernel
+from farsight.acquire.fetch import MAX_FETCH_BYTES, AcquisitionError, fetch_kernel
 from farsight.cli import exit_codes
 from farsight.cli.main import app
 from farsight.registry.kernel_cache import KernelCache, KernelCacheError, sha256_bytes, sha256_file
@@ -268,9 +268,9 @@ def test_only_the_cache_module_writes_to_the_cache():
         rel = path.relative_to(SRC.parent.parent).as_posix().replace("src/farsight/", "")
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                if node.func.id == "write_atomic":
-                    writers.append(rel)
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "write_atomic"):
+                writers.append(rel)
     # The sanctioned writers, each named with what it owns. This list is the point of the lint:
     # a fourth entry appearing without a reason is a second path by which bytes reach disk.
     #
@@ -292,6 +292,15 @@ def test_only_the_cache_module_writes_to_the_cache():
     )
 
 
+def _imports_acquire(node: ast.AST) -> bool:
+    """True when this node imports anything under `farsight.acquire`, either spelling."""
+    if isinstance(node, ast.ImportFrom):
+        return (node.module or "").startswith("farsight.acquire")
+    if isinstance(node, ast.Import):
+        return any(a.name.startswith("farsight.acquire") for a in node.names)
+    return False
+
+
 def test_acquire_is_imported_only_by_the_cli_fetch_module():
     """ADR-012: `farsight.acquire` is the only package permitted a networking library, and the
     CLI's fetch subcommand is its only importer. That chain is what makes 'zero network calls in
@@ -304,12 +313,11 @@ def test_acquire_is_imported_only_by_the_cli_fetch_module():
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("farsight.acquire"):
+            if _imports_acquire(node):
                 importers.append(rel)
-            elif isinstance(node, ast.Import):
-                if any(a.name.startswith("farsight.acquire") for a in node.names):
-                    importers.append(rel)
-    assert set(importers) <= {"cli/fetch.py"}, f"unexpected importers of acquire: {sorted(set(importers))}"
+    assert set(importers) <= {"cli/fetch.py"}, (
+        f"unexpected importers of acquire: {sorted(set(importers))}"
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -368,7 +376,9 @@ def test_the_pinned_lsk_digest_is_the_one_this_repo_fetched():
     went wrong -- never what this test says."""
     doc = _json.loads(MANIFEST.read_text(encoding="utf-8"))
     lsk = [r for r in doc["kernels"] if r["kernel_type"] == "lsk"]
-    assert len(lsk) == 1, "ADR-016 decision 6: exactly one LSK, so 'the pinned LSK' denotes one file"
+    assert len(lsk) == 1, (
+        "ADR-016 decision 6: exactly one LSK, so 'the pinned LSK' denotes one file"
+    )
     assert lsk[0]["sha256"] == (
         "678e32bdb5a744117a467cd9601cd6b373f0e9bc9bbde1371d5eee39600a039b"
     )

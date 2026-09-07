@@ -26,6 +26,7 @@ be hashed -- the failure would appear as a cross-platform hash mismatch far from
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import os
 from pathlib import Path
@@ -69,7 +70,9 @@ def write_atomic(path: str | Path, data: bytes) -> Path:
     tmp = final.with_name(f"{final.name}.tmp.{os.getpid()}.{next(_counter)}")
 
     try:
-        with open(tmp, "wb") as handle:  # noqa: FS001 - this module is the sanctioned writer
+        # This module IS the sanctioned writer, which is what the repo's own atomic-write
+        # lint checks; `FS001` is not a ruff rule and never suppressed anything.
+        with open(tmp, "wb") as handle:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
@@ -77,10 +80,8 @@ def write_atomic(path: str | Path, data: bytes) -> Path:
     except BaseException:
         # BaseException, not Exception: a KeyboardInterrupt mid-write should still not leave a
         # temp file behind, and the raise re-propagates it unchanged.
-        try:
+        with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
         raise
 
     _fsync_directory(final.parent)

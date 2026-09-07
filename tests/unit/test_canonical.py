@@ -132,7 +132,7 @@ def test_bmp_keys_sort_identically_under_both_orders():
     # The disagreement above is confined to supplementary characters. Across the whole BMP the
     # two orders coincide, which is why the bug is easy to miss without a targeted test.
     keys = ["a", "A", "z", "0", "_", "é", "ÿ", "퟿"]
-    out = canonicalize({k: 1 for k in keys})
+    out = canonicalize(dict.fromkeys(keys, 1))
     positions = [out.index('"' + k + '"') for k in sorted(keys)]
     assert positions == sorted(positions)
 
@@ -141,7 +141,7 @@ def test_unicode_is_not_escaped():
     # ECMAScript JSON.stringify emits literal UTF-8 for non-ASCII; json.dumps would escape it
     # by default. Divergence here would change every hash containing a non-ASCII character.
     assert canonicalize({"k": "café"}) == '{"k":"café"}'
-    assert canonical_bytes({"k": "café"}) == '{"k":"café"}'.encode("utf-8")
+    assert canonical_bytes({"k": "café"}) == '{"k":"café"}'.encode()
 
 
 @pytest.mark.parametrize(

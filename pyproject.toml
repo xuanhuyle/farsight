@@ -28,7 +28,7 @@ basilisk = ["bsk"]       # ISC; version floor >= the post-construction RNGSeed f
                          # set in the week-1 spike (ADR-002, ADR-014)
 gmat     = []            # deliberately empty: GMAT is a user-installed tree, not a dependency
 analysis = ["pandas", "matplotlib"]   # quarantined by ADR-013; nothing in the truth loop imports it
-dev      = ["pytest", "pytest-socket", "hypothesis", "import-linter", "ruff", "mypy", "pytest-cov"]
+dev      = ["pytest", "pytest-socket", "hypothesis", "import-linter", "ruff==0.16.5", "mypy", "pytest-cov"]
 
 [project.scripts]
 farsight = "farsight.cli.main:app"
@@ -43,3 +43,64 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+# The rule set is PINNED here rather than inherited from the tool's defaults, and the ruff
+# version is pinned in the `dev` extra. Both matter for the same reason: ruff's default select
+# changes between releases, so an unpinned `ruff check` in CI would start failing on the tool's
+# release schedule rather than on ours -- the same hazard ADR-006 already names for container
+# base images ("any base-image security update ... forces a re-golding cycle on someone else's
+# schedule"). Measured 2026-09-07: ruff 0.16.5's own defaults enable 415 rules and report 150
+# findings here, while the explicit set below reports a different number again. A lint whose
+# meaning depends on which machine runs it is not a contract.
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # import order
+    "UP",       # pyupgrade -- target-version is py312
+    "B",        # bugbear
+    "C4",       # comprehensions
+    "SIM",      # simplify
+    "RUF",      # ruff-specific
+    "ISC",      # implicit string concatenation
+    "DTZ",      # naive datetimes
+    "TRY",      # exception antipatterns
+    "BLE",      # blind except
+    "FURB",     # refurb
+    "PL",       # pylint
+]
+
+# Each exclusion is a rule this codebase violates DELIBERATELY. They are listed with reasons
+# rather than dropped from `select`, so that the disagreement is visible and arguable.
+ignore = [
+    # Long, explanatory exception messages are a core value here, not an accident: an error a
+    # reader can act on without opening the source is most of what this product sells. 214 of the
+    # 217 TRY findings are this rule.
+    "TRY003",
+
+    # WRONG FOR THIS CODEBASE, and following it would reintroduce a bug already fixed once.
+    # Pydantic folds `ValueError` into `ValidationError`; a `TypeError` escapes as itself. A
+    # validator raising TypeError on a bad type therefore reaches the caller as a different
+    # exception than every other refusal, which is exactly how `SpecCompositionError(ValueError)`
+    # became silently unreachable earlier in this project.
+    "TRY004",
+
+    # Lazy imports are load-bearing, not laziness. `farsight.cli` and the SPICE adapter import
+    # inside functions so that the auditor's zero-extras install can import every module without
+    # the `spice` extra present -- three records call that the most commercially important
+    # property in the codebase. 93 findings, all of them intentional.
+    "PLC0415",
+
+    # A magic number in a test is usually the point of the test.
+    "PLR2004",
+
+    # A frozen schema legitimately has many fields, and a keyword-only constructor is how they
+    # are passed. Counting them is not a useful signal here.
+    "PLR0913", "PLR0917",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# `pytest.importorskip` must run BEFORE the imports it guards, which is the documented pytest
+# idiom and is what makes a module skip cleanly on the zero-extras install.
+"tests/**" = ["E402"]
+

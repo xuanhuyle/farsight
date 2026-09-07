@@ -50,7 +50,7 @@ def interval_expr():
 
 def derivation(**over) -> Derivation:
     expr = over.pop("expression", None) or interval_expr()
-    base = dict(expression=expr, inputs=sorted(param_paths(expr)), note=NOTE)
+    base = {"expression": expr, "inputs": sorted(param_paths(expr)), "note": NOTE}
     return Derivation(**{**base, **over})
 
 

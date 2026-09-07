@@ -45,7 +45,7 @@ from fixtures.synthetic_spk import (
 
 from farsight.cli.run_geometry import run_geometry
 from farsight.registry.audit import AuditLog
-from farsight.registry.channels import grid_hash, read_channel
+from farsight.registry.channels import read_channel
 from farsight.registry.kernel_cache import KernelCache
 from farsight.registry.paths import kernel_cache_root
 
@@ -222,6 +222,7 @@ def test_hash_stability_survives_a_process_boundary(prepared, tmp_path):
         [sys.executable, str(script)],
         capture_output=True, text=True, encoding="utf-8",
         env={"PYTHONHASHSEED": "12345", "PATH": ""},
+       check=False,
     )
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout.strip()) == in_process["channels"]

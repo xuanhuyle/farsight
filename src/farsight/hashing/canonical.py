@@ -22,15 +22,14 @@ FarSight can guarantee.
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Any
 
 from farsight.schemas.errors import FarSightError
 
 __all__ = [
     "CanonicalizationError",
-    "canonicalize",
     "canonical_bytes",
+    "canonicalize",
     "content_hash",
     "hash_object",
     "is_content_hash",
@@ -117,7 +116,9 @@ def _utf16_sort_key(s: str) -> tuple[int, ...]:
     return tuple(int.from_bytes(encoded[i : i + 2], "big") for i in range(0, len(encoded), 2))
 
 
-def _write(value: Any, out: list[str], path: tuple[str | int, ...]) -> None:
+def _write(  # noqa: PLR0911, PLR0912 - an exhaustive type dispatch; branches ARE the spec
+    value: Any, out: list[str], path: tuple[str | int, ...]
+) -> None:
     if value is None:
         out.append("null")
         return
@@ -167,7 +168,7 @@ def _write(value: Any, out: list[str], path: tuple[str | int, ...]) -> None:
                 out.append(",")
             out.append(_escape_string(k))
             out.append(":")
-            _write(value[k], out, path + (k,))
+            _write(value[k], out, (*path, k))
         out.append("}")
         return
 
@@ -176,7 +177,7 @@ def _write(value: Any, out: list[str], path: tuple[str | int, ...]) -> None:
         for i, item in enumerate(value):
             if i:
                 out.append(",")
-            _write(item, out, path + (i,))
+            _write(item, out, (*path, i))
         out.append("]")
         return
 

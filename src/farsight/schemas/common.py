@@ -16,31 +16,31 @@ the claim silently.
 
 from __future__ import annotations
 
+import datetime as _dt
 import re
 from decimal import Decimal
-import datetime as _dt
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 __all__ = [
+    "DECIMAL_RE",
+    "PATH_RE",
+    "SEGMENT_RE",
+    "WINDOWS_RESERVED",
     "FrozenModel",
-    "VersionedDocument",
+    "IntervalQ",
     "Provenance",
     "Quantity",
-    "IntervalQ",
+    "Ref",
     "TimeSpanQ",
     "ValidityEnvelope",
-    "Ref",
-    "DECIMAL_RE",
-    "SEGMENT_RE",
-    "PATH_RE",
+    "VersionedDocument",
     "is_ref",
     "is_under",
     "normalize_decimal",
     "validate_path",
     "validate_segment",
-    "WINDOWS_RESERVED",
 ]
 
 # ADR-001 rule 2. Exact, and validated rather than described:
@@ -164,7 +164,9 @@ def validate_path(s: str) -> str:
             f"joined by '.', digits and single underscores, no leading or trailing separator"
         )
     if len(s) > MAX_PATH_CHARS:
-        raise ValueError(f"topology path {s!r} is {len(s)} characters, over the {MAX_PATH_CHARS} cap")
+        raise ValueError(
+            f"topology path {s!r} is {len(s)} characters, over the {MAX_PATH_CHARS} cap"
+        )
     segments = s.split(".")
     if len(segments) > MAX_PATH_SEGMENTS:
         raise ValueError(
@@ -366,7 +368,7 @@ class IntervalQ(FrozenModel):
     upper: Quantity
 
     @model_validator(mode="after")
-    def _check_ordered(self) -> "IntervalQ":
+    def _check_ordered(self) -> IntervalQ:
         if self.lower.unit != self.upper.unit:
             raise ValueError(
                 f"interval bounds carry different units: {self.lower.unit!r} and "
@@ -388,7 +390,7 @@ class TimeSpanQ(FrozenModel):
     end: Quantity
 
     @model_validator(mode="after")
-    def _check_ordered(self) -> "TimeSpanQ":
+    def _check_ordered(self) -> TimeSpanQ:
         if self.start.as_decimal() > self.end.as_decimal():
             raise ValueError("time span starts after it ends")
         return self

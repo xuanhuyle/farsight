@@ -21,14 +21,15 @@ than a reason the whole path goes untested.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 
 from farsight.registry.kernel_cache import KernelCache, sha256_bytes
 from farsight.schemas.errors import FarSightError
 from farsight.schemas.knowledge import DataArtifact
 
-__all__ = ["AcquisitionError", "Opener", "fetch_kernel", "default_opener", "MAX_FETCH_BYTES"]
+__all__ = ["MAX_FETCH_BYTES", "AcquisitionError", "Opener", "default_opener", "fetch_kernel"]
 
 # A ceiling so a misdirected URL cannot fill the disk before anyone notices. Generous against the
 # real cases -- a planetary ephemeris SPK is a few hundred MB -- and it exists because the cache
@@ -56,8 +57,8 @@ def default_opener(url: str) -> bytes:
     ``farsight.acquire`` -- which the CLI does to register its verb -- does not itself pull a
     networking stack into the process.
     """
-    from urllib.parse import urlparse  # noqa: PLC0415 - deliberate; see docstring
-    from urllib.request import urlopen  # noqa: PLC0415
+    from urllib.parse import urlparse  # at point of use; see this function's docstring
+    from urllib.request import urlopen
 
     scheme = urlparse(url).scheme
     if scheme not in {"https", "file"}:
@@ -66,7 +67,8 @@ def default_opener(url: str) -> bytes:
             f"would let the bytes be altered in flight, and although the digest check would "
             f"catch that, the honest fix is not to offer the channel."
         )
-    with urlopen(url) as response:  # noqa: S310 - scheme is checked above
+    # The URL scheme is checked above, which is what a scheme-audit rule would ask for.
+    with urlopen(url) as response:
         return response.read(MAX_FETCH_BYTES + 1)
 
 

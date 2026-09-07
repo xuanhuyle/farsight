@@ -311,7 +311,7 @@ def _shadow_checks(config, epochs_exact: list[Decimal]) -> list[str]:
         try:
             utc = et_to_utc(et, precision=6)
             back = utc_to_tdb_seconds(utc.replace("Z", ""))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - astropy's failure modes are not enumerated
             findings.append(f"{label} epoch: cross-check could not run: {exc}")
             continue
         delta = abs(Decimal(repr(et)) - back)

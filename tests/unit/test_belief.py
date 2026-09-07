@@ -10,7 +10,6 @@ central claim has quietly stopped being true.
 from __future__ import annotations
 
 import datetime as dt
-from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
@@ -58,7 +57,8 @@ def q(mag: str, unit: str = "m") -> Quantity:
 
 
 def test_epistemic_kinds_have_no_sample_method():
-    interval = EpistemicInterval(lower=q("0.16"), upper=q("1.0"), rationale=RATIONALE, pedigree=ped())
+    interval = EpistemicInterval(lower=q("0.16"), upper=q("1.0"), rationale=RATIONALE,
+                                 pedigree=ped())
     eset = EpistemicSet(members=[q("1"), q("2")], rationale=RATIONALE, pedigree=ped())
     unknown = Unknown(
         what_is_missing="Ground-receiver optical-train throughput is not published anywhere.",
@@ -98,7 +98,8 @@ def test_unknown_exposes_neither_sampling_nor_enumeration():
 
 
 def test_epistemic_kinds_enumerate_instead():
-    interval = EpistemicInterval(lower=q("0.16"), upper=q("1.0"), rationale=RATIONALE, pedigree=ped())
+    interval = EpistemicInterval(lower=q("0.16"), upper=q("1.0"), rationale=RATIONALE,
+                                 pedigree=ped())
     assert interval.enumerate_outer() == [q("0.16"), q("1.0")]
     eset = EpistemicSet(members=[q("1"), q("2"), q("3")], rationale=RATIONALE, pedigree=ped())
     assert len(eset.enumerate_outer()) == 3
@@ -110,7 +111,8 @@ def test_deterministic_samples_its_own_value():
 
 
 def test_is_epistemic_covers_exactly_the_unsamplable_kinds():
-    assert is_epistemic(EpistemicInterval(lower=q("0"), upper=q("1"), rationale=RATIONALE, pedigree=ped()))
+    assert is_epistemic(EpistemicInterval(lower=q("0"), upper=q("1"), rationale=RATIONALE,
+                                          pedigree=ped()))
     assert is_epistemic(EpistemicSet(members=[q("1"), q("2")], rationale=RATIONALE, pedigree=ped()))
     assert is_epistemic(Unknown(what_is_missing="x" * 25, pedigree=ped("speculative")))
     assert not is_epistemic(Deterministic(value=q("1"), pedigree=ped()))
@@ -165,8 +167,10 @@ def test_at_point_refuses_to_leave_a_hyperparameter_open():
         distribution=Distribution(
             family="normal",
             params={
-                "mu": EpistemicInterval(lower=q("0"), upper=q("1"), rationale=RATIONALE, pedigree=ped()),
-                "sigma": EpistemicInterval(lower=q("1"), upper=q("2"), rationale=RATIONALE, pedigree=ped()),
+                "mu": EpistemicInterval(lower=q("0"), upper=q("1"), rationale=RATIONALE,
+                                        pedigree=ped()),
+                "sigma": EpistemicInterval(lower=q("1"), upper=q("2"), rationale=RATIONALE,
+                                           pedigree=ped()),
             },
         ),
         pedigree=ped(),
@@ -270,7 +274,8 @@ def test_aleatory_hyperparameter_rejected_at_construction():
 
 def test_unknown_hyperparameter_rejected_at_construction():
     # An Unknown has no bracket to scan, so there is nothing for the outer loop to enumerate.
-    u = Unknown(what_is_missing="No measurement exists for this term at all.", pedigree=ped("speculative"))
+    u = Unknown(what_is_missing="No measurement exists for this term at all.",
+                pedigree=ped("speculative"))
     with pytest.raises(ValidationError):
         Distribution(family="rayleigh", params={"sigma": u})
 
@@ -309,7 +314,8 @@ def test_epistemic_set_is_never_weighted():
     eset = EpistemicSet(members=[q("1"), q("2")], rationale=RATIONALE, pedigree=ped())
     assert "weights" not in type(eset).model_fields
     with pytest.raises(ValidationError):
-        EpistemicSet(members=[q("1"), q("2")], weights=[0.7, 0.3], rationale=RATIONALE, pedigree=ped())
+        EpistemicSet(members=[q("1"), q("2")], weights=[0.7, 0.3], rationale=RATIONALE,
+                     pedigree=ped())
 
 
 def test_epistemic_set_needs_at_least_two_alternatives():
@@ -326,12 +332,14 @@ def test_epistemic_interval_bounds_must_be_ordered_and_share_a_unit():
     with pytest.raises(ValidationError):
         EpistemicInterval(lower=q("2"), upper=q("1"), rationale=RATIONALE, pedigree=ped())
     with pytest.raises(ValidationError):
-        EpistemicInterval(lower=q("0", "m"), upper=q("1", "km"), rationale=RATIONALE, pedigree=ped())
+        EpistemicInterval(lower=q("0", "m"), upper=q("1", "km"), rationale=RATIONALE,
+                          pedigree=ped())
 
 
 def test_pedigree_requires_sources_unless_speculative():
     with pytest.raises(ValidationError, match="must cite at least one source"):
-        Pedigree(level="published_design", sources=[], assessor="x", assessed_on=dt.date(2026, 1, 1))
+        Pedigree(level="published_design", sources=[], assessor="x",
+                 assessed_on=dt.date(2026, 1, 1))
     Pedigree(level="speculative", sources=[], assessor="x", assessed_on=dt.date(2026, 1, 1))
 
 
@@ -344,20 +352,20 @@ JUSTIFICATION = (
 
 def collapse(**over):
     """A valid collapse, overridable field by field."""
-    base = dict(
-        collapse_id="dsoc_jitter_screen",
-        original_belief=EpistemicInterval(
+    base = {
+        "collapse_id": "dsoc_jitter_screen",
+        "original_belief": EpistemicInterval(
             lower=q("0.16", "urad"), upper=q("1.0", "urad"), rationale=RATIONALE, pedigree=ped()
         ),
-        chosen=Deterministic(value=q("0.58", "urad"), pedigree=ped()),
-        justification=JUSTIFICATION,
-        authorizer="operator:jh",
-        authorized_on=dt.datetime(2026, 8, 28, 14, 30, tzinfo=dt.timezone.utc),
-        scope=CollapseScope(
+        "chosen": Deterministic(value=q("0.58", "urad"), pedigree=ped()),
+        "justification": JUSTIFICATION,
+        "authorizer": "operator:jh",
+        "authorized_on": dt.datetime(2026, 8, 28, 14, 30, tzinfo=dt.UTC),
+        "scope": CollapseScope(
             experiment_hash=HEX, parameter_paths=["spacecraft.dsoc.pointing.jitter_sigma"]
         ),
-        lane="evidence",
-    )
+        "lane": "evidence",
+    }
     return EpistemicCollapse(**{**base, **over})
 
 
@@ -424,7 +432,9 @@ def test_collapse_reproduces_the_original_belief_verbatim():
 
 def test_collapse_timestamp_must_be_unambiguous():
     with pytest.raises(ValidationError, match="UTC offset"):
-        collapse(authorized_on=dt.datetime(2026, 8, 28, 14, 30))
+        # Naive ON PURPOSE: the point is that it is refused. DTZ001 would have us fix the
+        # input and delete the test.
+        collapse(authorized_on=dt.datetime(2026, 8, 28, 14, 30))  # noqa: DTZ001
 
 
 def test_collapse_expiry_is_after_authorization_and_lapses():
@@ -471,7 +481,8 @@ def test_significant_figures_are_part_of_identity():
 
 
 def test_field_order_does_not_affect_a_belief_hash():
-    kw = dict(value=q("0.22"), pedigree=ped(), validity=ValidityEnvelope(conditions=["a", "b"]))
+    kw = {"value": q("0.22"), "pedigree": ped(),
+          "validity": ValidityEnvelope(conditions=["a", "b"])}
     a = Deterministic(**kw)
     b = Deterministic(validity=kw["validity"], pedigree=kw["pedigree"], value=kw["value"])
     assert content_hash(a.model_dump(mode="json")) == content_hash(b.model_dump(mode="json"))

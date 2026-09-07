@@ -32,7 +32,8 @@ FORBIDDEN = [
 # these markers: negations, rule statements, or quoting punctuation around the phrase.
 NEGATION = re.compile(
     r"never|not |no |forbidden|prohibit|must not|may not|unless|avoid|rather than|"
-    r"instead of|do not|don't|cannot|refuse|ban|Forbidden|`|\"|“|‘|'",
+    # The curly quotes are deliberate: this scans Markdown, where they are what appears.
+    r"instead of|do not|don't|cannot|refuse|ban|Forbidden|`|\"|“|‘|'",  # noqa: RUF001
 )
 
 # path (relative, posix) -> reason. Keep this SHORT; growth is ADR-030's revisit trigger.
@@ -81,7 +82,7 @@ def test_implementation_deviations_ledger_is_structured_and_points_at_real_files
     p = REPO / "docs" / "adr" / "IMPLEMENTATION_DEVIATIONS.md"
     assert p.exists(), "docs/adr/IMPLEMENTATION_DEVIATIONS.md is where ADR/code drift is recorded"
     text = p.read_text(encoding="utf-8")
-    entries = re.split(r"^## ", text, flags=re.M)[1:]
+    entries = re.split(r"^## ", text, flags=re.MULTILINE)[1:]
     assert entries, "the deviations ledger must contain at least one entry"
 
     required = ["**Record:**", "**Code:**", "**What differs.**", "**Why.**",
@@ -112,7 +113,7 @@ def test_expert_review_backlog_exists_and_is_structured():
     assert p.exists(), "EXPERT_REVIEW_BACKLOG.md is mandatory (ADR-030 decision 6)"
     text = p.read_text(encoding="utf-8")
     # Every entry is an H2 section carrying the required fields.
-    entries = re.split(r"^## ", text, flags=re.M)[1:]
+    entries = re.split(r"^## ", text, flags=re.MULTILINE)[1:]
     assert entries, "the backlog must contain at least one entry"
     required = ["**Topic:**", "**Expertise eventually required:**", "**Current state:**",
                 "**Current confidence:**", "**Consequence if wrong:**", "**Priority:**"]
@@ -200,7 +201,7 @@ def test_exception_hierarchy_closed():
     )
 
 
-def test_no_freeze_time_error_under_engines():
+def test_no_freeze_time_error_under_engines():  # noqa: PLR0912 - one rule, one place
     """ADR-023 Enforcement item 6, second leg.
 
     No ``FreezeTimeError`` subclass may be raised or imported anywhere under
@@ -296,15 +297,15 @@ def test_determinism_rules():
     ALLOWED = {
         "cli/geometry.py": (
             "now",
-            "ADR-012's `ts_utc` for the audit row. The audit log is explicitly NOT package "
+            ("ADR-012's `ts_utc` for the audit row. The audit log is explicitly NOT package "
             "content (ADR-006, ADR-012): timestamps live only in the unhashed provenance half, "
-            "and a log of when things happened cannot be written without reading a clock.",
+            "and a log of when things happened cannot be written without reading a clock."),
         ),
         "registry/atomic.py": (
             "getpid",
-            "A temp filename component, so two concurrent writers do not collide on the same "
+            ("A temp filename component, so two concurrent writers do not collide on the same "
             "sibling path. The file is renamed over the destination and the name is discarded; "
-            "no hashed artifact ever contains it.",
+            "no hashed artifact ever contains it."),
         ),
     }
 
@@ -336,4 +337,43 @@ def test_determinism_rules():
     assert not stale, (
         f"allowlist entries with no matching call: {stale}. Remove them, or the exception "
         f"outlives the reason for it"
+    )
+
+
+def test_the_lint_rule_set_is_pinned_rather_than_inherited():
+    """A lint whose meaning depends on which machine runs it is not a contract.
+
+    Measured 2026-09-07: with no `select`, ruff 0.16.5 enables 415 rules of its own choosing and
+    reports 150 findings in this tree. A different ruff version would enable a different set, so
+    CI would start failing on the tool's release schedule rather than on a change to this code --
+    which is the shape ADR-006 already warns about for container base images, where "any
+    base-image security update invalidates existing Tier-A goldens and forces a re-golding cycle
+    on someone else's schedule".
+
+    Two things therefore have to stay pinned, and this test fails if either is dropped: the rule
+    set, and the version of the tool that interprets it.
+    """
+    import re
+    import tomllib
+
+    config = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+
+    lint = config.get("tool", {}).get("ruff", {}).get("lint", {})
+    assert lint.get("select"), (
+        "[tool.ruff.lint].select is empty or missing, so the enforced rule set is whatever this "
+        "ruff version happens to default to"
+    )
+    assert isinstance(lint.get("ignore"), list), (
+        "every deliberate exclusion belongs in `ignore` with a reason beside it, not in a "
+        "narrowed `select` where the disagreement is invisible"
+    )
+
+    dev = config["project"]["optional-dependencies"]["dev"]
+    pins = [d for d in dev if d.replace(" ", "").startswith("ruff==")]
+    assert pins, (
+        f"ruff is unpinned in the `dev` extra ({dev}). An unpinned linter in CI is a build that "
+        f"breaks when someone else ships a release"
+    )
+    assert re.fullmatch(r"ruff==\d+\.\d+\.\d+", pins[0].replace(" ", "")), (
+        f"expected an exact ruff pin, got {pins[0]!r}"
     )

@@ -52,41 +52,41 @@ half this module can honestly provide.
 from __future__ import annotations
 
 import datetime as _dt
-from typing import Any, Iterable, Literal
+from collections.abc import Iterable
+from typing import Any, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import field_validator, model_validator
 
 from farsight.schemas.belief import Pedigree
 from farsight.schemas.common import (
     FrozenModel,
-    is_ref,
-    MAX_SEGMENT_CHARS,
     Quantity,
     Ref,
-    SEGMENT_RE,
-    validate_segment,
     VersionedDocument,
+    is_ref,
+    validate_segment,
 )
 
 __all__ = [
-    "DataArtifact",
-    "SourceOrigin",
     "EXTERNAL_PUBLICATION_ORIGINS",
-    "IdentifierScheme",
-    "SourceIdentifier",
-    "SourceRevisionReason",
-    "Source",
-    "AssumptionRevisionReason",
-    "AssumptionBound",
-    "Assumption",
-    "dependents_of",
-    "MIN_STATEMENT_CHARS",
     "MIN_CONSEQUENCE_CHARS",
+    "MIN_STATEMENT_CHARS",
+    "Assumption",
+    "AssumptionBound",
+    "AssumptionRevisionReason",
+    "DataArtifact",
+    "IdentifierScheme",
+    "Source",
+    "SourceIdentifier",
+    "SourceOrigin",
+    "SourceRevisionReason",
+    "dependents_of",
 ]
 
 # ADR-004 requires every non-speculative pedigree to cite a source, and ADR-021 forbids anything
 # FarSight produces from being bound as a Referent. Those two rules pull in opposite directions
-# on one type: `Pedigree.sources` legitimately cites our own hand calculation (the `derived_analysis`
+# on one type: `Pedigree.sources` legitimately cites our own hand calculation (the
+# `derived` level)
 # and `expert_judgment` pedigree levels exist for exactly that), while `Referent.source_refs` may
 # cite none of it. So a Source has to say which kind it is, or one type cannot serve both fields.
 #
@@ -227,7 +227,7 @@ class DataArtifact(VersionedDocument):
         return v
 
     @model_validator(mode="after")
-    def _check_attribution(self) -> "DataArtifact":
+    def _check_attribution(self) -> DataArtifact:
         if self.modified and not self.license_note.strip():
             raise ValueError(
                 "a modified artifact must carry a license note naming its modifier. ADR-012: "
@@ -322,7 +322,10 @@ class Source(VersionedDocument):
     def _check_identifiers(cls, v: list[SourceIdentifier]) -> list[SourceIdentifier]:
         keys = [i.key() for i in v]
         if len(set(keys)) != len(keys):
-            raise ValueError(f"source repeats an identifier: {sorted({k for k in keys if keys.count(k) > 1})}")
+            raise ValueError(
+                f"source repeats an identifier: "
+                f"{sorted({k for k in keys if keys.count(k) > 1})}"
+            )
         if keys != sorted(keys):
             raise ValueError(
                 "identifiers must be sorted by (scheme, value, part), so that two transcriptions "
@@ -340,7 +343,7 @@ class Source(VersionedDocument):
         return v
 
     @model_validator(mode="after")
-    def _check(self) -> "Source":
+    def _check(self) -> Source:
         if self.revision < 1:
             raise ValueError("revision is monotone and starts at 1; identity is still the digest")
         if (self.supersedes is None) != (self.revision_reason is None):
@@ -405,7 +408,7 @@ class AssumptionBound(FrozenModel):
     upper: Quantity | None
 
     @model_validator(mode="after")
-    def _check(self) -> "AssumptionBound":
+    def _check(self) -> AssumptionBound:
         if self.lower is None and self.upper is None:
             raise ValueError(
                 "an assumption states a bound; with neither edge it asserts nothing and cannot "
@@ -495,7 +498,7 @@ class Assumption(VersionedDocument):
         return v
 
     @model_validator(mode="after")
-    def _check(self) -> "Assumption":
+    def _check(self) -> Assumption:
         if self.revision < 1:
             raise ValueError("revision is monotone and starts at 1; identity is still the digest")
         if (self.supersedes is None) != (self.revision_reason is None):

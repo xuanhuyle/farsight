@@ -19,27 +19,28 @@ is a scientific outcome and a nonzero exit reads as a broken tool.
 
 from __future__ import annotations
 
-from typing import Final, Iterable, NamedTuple
+from collections.abc import Iterable
+from typing import Final, NamedTuple
 
 __all__ = [
-    "ExitCode",
-    "REGISTRY",
-    "resolve",
-    "meaning",
-    "OK",
-    "INTERNAL_ERROR",
-    "USAGE_ERROR",
-    "INTEGRITY_FAILURE",
-    "SCHEMA_FAILURE",
+    "ACQUISITION_FAILURE",
     "COMPLETENESS_FAILURE",
-    "RECOMPUTATION_MISMATCH",
     "ENVIRONMENT_REFUSAL",
-    "SIGNATURE_POLICY_FAILURE",
+    "INTEGRITY_FAILURE",
+    "INTERNAL_ERROR",
+    "OK",
     "PRECONDITION_REFUSAL",
-    "WORK_REMAINS",
+    "RECOMPUTATION_MISMATCH",
+    "REGISTRY",
+    "SCHEMA_FAILURE",
+    "SIGNATURE_POLICY_FAILURE",
+    "USAGE_ERROR",
     "VERDICT_FAIL",
     "VERDICT_INDETERMINATE",
-    "ACQUISITION_FAILURE",
+    "WORK_REMAINS",
+    "ExitCode",
+    "meaning",
+    "resolve",
 ]
 
 

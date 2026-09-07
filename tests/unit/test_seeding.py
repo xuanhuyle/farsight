@@ -70,7 +70,7 @@ def test_an_unregistered_stream_name_is_refused_not_defaulted():
 
 
 def test_ids_three_to_fifteen_are_reserved_for_append():
-    assert RESERVED_STREAM_IDS == frozenset(range(3, 16))
+    assert frozenset(range(3, 16)) == RESERVED_STREAM_IDS
     assert not (set(STREAMS.values()) & RESERVED_STREAM_IDS)
     state_words(ROOT, 0, 3, 2)  # a reserved id derives; it simply has no name yet
     with pytest.raises(SeedingError, match="outside the registry"):
@@ -132,7 +132,7 @@ def test_stream_rng_is_keyed_on_the_full_address():
 
 def test_stream_rng_and_state_words_share_one_derivation():
     """They must key identically, or the archived words describe a stream nobody drew from."""
-    import numpy as np  # noqa: PLC0415
+    import numpy as np
 
     expected = np.random.Generator(
         np.random.Philox(np.random.SeedSequence(entropy=ROOT, spawn_key=(4242, 0)))
@@ -183,7 +183,7 @@ def test_derivation_survives_a_process_boundary():
     )
     result = subprocess.run(
         [sys.executable, "-c", program], capture_output=True, text=True, cwd=str(REPO)
-    )
+    , check=False)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().split(",") == state_words(ROOT, 4242, 0, 4)
 
@@ -318,10 +318,11 @@ def test_design_scoped_keys_are_separated_by_entropy_not_by_tag_value():
     a different value from `root_seed`, so a shared spawn_key prefix collides with nothing. This
     test asserts the separation that is real rather than the one the record claims.
     """
-    assert DESIGN_SCOPE_TAG == 0xD5 == 213
+    # 0xD5 is 213 in decimal, which is what puts it inside the run-index range (DEV-11).
+    assert DESIGN_SCOPE_TAG == 213
 
     design_seed = ROOT + 1  # any value distinct from the root seed
-    import numpy as np  # noqa: PLC0415 - constructing the comparison directly, not drawing
+    import numpy as np
 
     design_words = list(
         np.random.SeedSequence(entropy=design_seed, spawn_key=(DESIGN_SCOPE_TAG, 0))

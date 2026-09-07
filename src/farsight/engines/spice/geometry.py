@@ -91,8 +91,8 @@ def compute(
         else np.empty((len(epochs),), dtype="<f8")
 
     try:
-        for i, et in enumerate(epochs):
-            et = float(et)
+        for i, raw_epoch in enumerate(epochs):
+            et = float(raw_epoch)
             if quantity == "state":
                 state, _lt = spiceypy.spkezr(
                     request.target, et, request.frame, request.aberration, request.observer
@@ -109,7 +109,10 @@ def compute(
                 else:  # direction
                     norm = float(spiceypy.vnorm(position))
                     if norm == 0.0:
-                        raise UnhonorableSpec(
+                        # Raised inside the try so the `except UnhonorableSpec: raise`
+                        # below re-raises it untouched rather than wrapping it in the
+                        # CSPICE-diagnostic message, which would be a lie about the cause.
+                        raise UnhonorableSpec(  # noqa: TRY301
                             f"the {request.observer}->{request.target} separation is exactly zero "
                             f"at et={et}, so no direction exists. A unit vector here would be a "
                             f"fabricated answer to a question with none"

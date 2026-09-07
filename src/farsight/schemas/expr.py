@@ -26,7 +26,7 @@ a caller could believe an expression had been dimensionally checked when it had 
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -37,19 +37,19 @@ from farsight.schemas.common import (
 )
 
 __all__ = [
-    "ParamLeaf",
-    "ConstLeaf",
-    "Add",
-    "Sub",
-    "Mul",
-    "Div",
-    "Neg",
-    "ArithExpr",
-    "Derivation",
-    "param_paths",
-    "expr_size",
-    "MAX_EXPR_NODES",
     "MAX_EXPR_DEPTH",
+    "MAX_EXPR_NODES",
+    "Add",
+    "ArithExpr",
+    "ConstLeaf",
+    "Derivation",
+    "Div",
+    "Mul",
+    "Neg",
+    "ParamLeaf",
+    "Sub",
+    "expr_size",
+    "param_paths",
 ]
 
 # Ceilings on expression size. ADR-029 caps the node *kinds* at seven and says an eighth is a
@@ -89,35 +89,35 @@ class ConstLeaf(FrozenModel):
 
 class Add(FrozenModel):
     kind: Literal["add"] = "add"
-    lhs: "ArithExpr"
-    rhs: "ArithExpr"
+    lhs: ArithExpr
+    rhs: ArithExpr
 
 
 class Sub(FrozenModel):
     kind: Literal["sub"] = "sub"
-    lhs: "ArithExpr"
-    rhs: "ArithExpr"
+    lhs: ArithExpr
+    rhs: ArithExpr
 
 
 class Mul(FrozenModel):
     kind: Literal["mul"] = "mul"
-    lhs: "ArithExpr"
-    rhs: "ArithExpr"
+    lhs: ArithExpr
+    rhs: ArithExpr
 
 
 class Div(FrozenModel):
     kind: Literal["div"] = "div"
-    lhs: "ArithExpr"
-    rhs: "ArithExpr"
+    lhs: ArithExpr
+    rhs: ArithExpr
 
 
 class Neg(FrozenModel):
     kind: Literal["neg"] = "neg"
-    operand: "ArithExpr"
+    operand: ArithExpr
 
 
 ArithExpr = Annotated[
-    Union[ParamLeaf, ConstLeaf, Add, Sub, Mul, Div, Neg],
+    ParamLeaf | ConstLeaf | Add | Sub | Mul | Div | Neg,
     Field(discriminator="kind"),
 ]
 
@@ -187,12 +187,12 @@ class Derivation(FrozenModel):
     principle.
     """
 
-    expression: "ArithExpr"
+    expression: ArithExpr
     inputs: list[str]
     note: str
 
     @model_validator(mode="after")
-    def _check(self) -> "Derivation":
+    def _check(self) -> Derivation:
         count, depth = expr_size(self.expression)
         if count > MAX_EXPR_NODES:
             raise ValueError(
