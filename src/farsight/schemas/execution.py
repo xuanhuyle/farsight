@@ -407,7 +407,9 @@ class StageSpec(FrozenModel):
     @field_validator("provider_id", "config_dialect")
     @classmethod
     def _check_segment(cls, v: str) -> str:
-        return validate_segment(v, what="stage_id")
+        # Covers `provider_id` AND `config_dialect`, so the label names both rather than
+        # misreporting either as a stage_id.
+        return validate_segment(v, what="provider_id / config_dialect")
 
     @field_validator("emits")
     @classmethod

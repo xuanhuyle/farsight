@@ -85,11 +85,11 @@ jobs:
           from pathlib import Path
           sys.path.insert(0, "tests")
           sys.path.insert(0, "tests/unit")
-          from test_geometry_gate import _design_dict, _populate_cache
+          from test_geometry_gate import _bundle_dict, _populate_cache
           home = Path(tempfile.mkdtemp())
           lsk, spk, ls, ss = _populate_cache(home)
           design = Path(tempfile.mkdtemp()) / "design.json"
-          design.write_text(json.dumps(_design_dict(lsk, spk, ls, ss), indent=2))
+          design.write_text(json.dumps(_bundle_dict(lsk, spk, ls, ss), indent=2))
           out = Path(tempfile.mkdtemp())
           r = subprocess.run(["farsight", "--json", "geometry", "--design", str(design),
                               "--out", str(out), "--home", str(home)],

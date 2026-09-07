@@ -935,40 +935,53 @@ point the synthetic fixture stays as a plumbing test and stops being the gate.
 **Status:** Open. The gate is green on the terms stated above and on no others; no document in
 this repository claims the Psyche or container legs are met.
 
-## DEV-21 — `GeometryDesign` is a second document for a job `RunSpec` is already defined to do
+## DEV-21 — RESOLVED: geometry moved onto `RunSpec`, and `GeometryDesign` was retired
 
 **Record:** [ADR-018](ADR-018-run-composition.md) decision 1 — "A run with no engine stage is a
 **geometry-only run**: the week-1 exit gate (`farsight geometry`, verb owned by ADR-024) ... are
-both this shape"; [ADR-024](ADR-024-cli-surface.md) confidence table — `farsight geometry` as a
-permanent top-level command is held at **0.60**, with the revisit trigger "ADR-018 lands run
-composition in week 3 and geometry turns out to be expressible as a one-stage `RunSpec`"
-**Code:** `src/farsight/schemas/probe.py`; `src/farsight/cli/run_geometry.py`
+both this shape"; [ADR-024](ADR-024-cli-surface.md) confidence table — `farsight geometry` held at
+**0.60**, revisit trigger "ADR-018 lands run composition in week 3 and geometry turns out to be
+expressible as a one-stage `RunSpec`"
+**Code:** `src/farsight/cli/run_geometry.py`; `src/farsight/engines/spice/config.py`;
+`src/farsight/registry/bundle.py`
 
-**What differs.** `GeometryDesign` is a hashed document carrying a kernel set, one grid and a list
-of requests. ADR-018 says that shape is a `RunSpec` whose stage list contains no engine stage, and
-names this exact command as an instance of it. So two document types now describe one job, and
-only one of them is in an Accepted record.
+**What differs.** Nothing, now. This entry is kept because it records a decision and its reason,
+not an outstanding gap.
 
-**Why.** The immediate reason is that `RunSpec` cannot express it today: it has no sample grid
-(`StageSpec.grid` is a reference to a descriptor no code produced until this stage), no
-`GeometryRequest`, and `StageSpec.config_ref` is deliberately dangling because ADR-003 makes
-provider config opaque. Building the gate on `RunSpec` would have meant inventing the missing half
-of run composition first, and ADR-018's own composition validators are due week 3.
+For one commit, `farsight geometry` read a `GeometryDesign` — a hashed document carrying a kernel
+set, one grid and a list of requests. ADR-018 says that shape **is** a `RunSpec` whose stage list
+contains no engine stage, and names this exact command as an instance of it. So two document types
+described one job, and only one of them was in an Accepted record. The verb now reads a `RunSpec`
+and `GeometryDesign` is deleted.
 
-The honest part is that this is a scheduling reason, not an architectural one — which is exactly
-what ADR-024 says about the verb itself.
+**Why.** ADR-024's revisit trigger is conditional on geometry turning out to be expressible as a
+one-stage `RunSpec`. That condition was not pending a week-3 discovery — ADR-018 is Accepted and
+already said so. The record also fixes the deadline: settled **before the first package ships in
+week 4**, after which the name is permanent. Doing it while `spec_hash` had no archived instances
+made the change free; after the first package it would invalidate every archived spec hash and
+every published pre-registration digest.
 
-**ADR-024's revisit trigger has already fired, and that is the point of this entry.** The trigger
-is conditional on geometry turning out to be expressible as a one-stage `RunSpec`; ADR-018 is
-Accepted and already says it is. So the condition is met in the record set today, not pending a
-week-3 discovery. ADR-024 requires the question settled **before the first package ships in week
-4**, after which the name — and by extension this document type — is permanent.
+Three things the move bought beyond removing a duplicate type, each a property the parallel
+document could not have:
 
-The decision is a founder decision and is not taken here. The two live options: declare
-`GeometryDesign` a deliberate week-1-only document with a retirement date, or move geometry onto
-`RunSpec` now while `spec_hash` has no archived instances and the change is free.
+* **The unit became structurally unforgeable.** It lives in the provider config, the config is
+  named by its digest, and the spec names that digest — so changing a unit changes `spec_hash`.
+  An edit that does not re-address is refused by the bundle verifier; one that does re-address
+  produces a visibly different spec. There is no third option.
+* **`config_dialect` does real work.** ADR-003 keeps provider config opaque to the core, so the
+  core cannot notice a stage promising channels its config does not compute. The adapter checks
+  the dialect and checks `emits` against what it will actually produce — the one place that sees
+  both halves.
+* **Channel names are stage-qualified by construction** (ADR-018, ADR-020): `stage_id` +
+  `"." ` + the emitted name. `geometry.range` is now produced by that rule rather than written out
+  by an author who could have written anything.
 
-**Closes by:** a superseding record settling ADR-024's 0.60 row, either retiring `geometry` in
-favour of a one-stage `run` or making the verb and this document permanent with reasons.
+**What the move did NOT fix**, so it is not implied: `RunSpec.experiment_hash` is still a dangling
+`Ref` — no `ExperimentDesign` type exists — and ADR-018 rule 1's resolution half (each `stage_id`
+resolves to a node in the run's `SystemTopology`) is still unenforceable, as
+`RunSpec.unenforced_rules()` already declares. The verb `farsight geometry` also still exists as a
+distinct command; what changed is that it now executes the same document `farsight run` will.
 
-**Status:** Open, and **time-boxed**: free to change now, permanent after the first package ships.
+**Closes by:** closed.
+
+**Status:** Resolved 2026-09-07, by founder decision to move while the change was free.

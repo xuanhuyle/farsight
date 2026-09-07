@@ -209,28 +209,3 @@ def write_channels_manifest(directory: str | Path, rows: list[dict]) -> Path:
     ordered = sorted(rows, key=lambda r: r["name"])
     payload = json.dumps(ordered, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
     return write_atomic(Path(directory) / "channels_manifest.json", payload.encode("utf-8"))
-
-
-def check_requests_name_this_grid(design: Any) -> str:
-    """Every request's ``epochs`` must be the digest of the design's own grid. Returns the digest.
-
-    This check lives here rather than on ``GeometryDesign`` because it needs a canonicalizer and
-    ``schemas`` is a leaf package (contract ``schemas_is_leaf``). Putting it behind a
-    function-local import inside the schema would satisfy the linter's letter and defeat its
-    purpose, so it sits one layer up instead, where hashing is legal.
-
-    What it catches is the ADR-011 hole in its design-time form: a request pointing at a different
-    grid computes *correct numbers against the wrong time base*, and every channel it produces
-    would then hash-verify clean against a header stating a grid the numbers were not computed on.
-    """
-    expected = grid_hash(design.grid)
-    for channel in design.channels:
-        if channel.request.epochs != expected:
-            raise ChannelWriteError(
-                f"channel {channel.channel!r} declares epochs={channel.request.epochs[:12]}... "
-                f"but this design's grid hashes to {expected[:12]}.... A request naming a "
-                f"different grid computes correct numbers against the wrong time base, which is "
-                f"the failure ADR-020 decision 6 closes in the channel header -- caught here at "
-                f"design time instead, where it is still a typo rather than an archived result"
-            )
-    return expected

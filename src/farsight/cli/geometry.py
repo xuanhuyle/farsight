@@ -69,7 +69,13 @@ def _emit(payload: dict, *, as_json: bool, quiet: bool) -> None:
 
 def geometry_command(
     ctx: typer.Context,
-    design: Annotated[Path, typer.Option("--design", help="Path to a GeometryDesign JSON file.")],
+    design: Annotated[
+        Path,
+        typer.Option(
+            "--design",
+            help="Path to a run bundle: a RunSpec plus the objects its digests name.",
+        ),
+    ],
     out: Annotated[Path, typer.Option("--out", help="Output directory for channels.")],
     home: Annotated[
         Path | None,
