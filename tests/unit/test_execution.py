@@ -46,11 +46,24 @@ def vs(path: str, mag: str = "1", origin: str = "deterministic", **kw) -> ValueS
     return ValueSource(value=Quantity(magnitude=mag, unit="m"), path=path, origin=origin, **kw)
 
 
+def _grid_digest(label: str) -> str:
+    """A distinct digest per readable label.
+
+    `GridRef` carries a grid's content address rather than a name (ADR-020 decision 4), so these
+    tests hash their labels: `"fine"` and `"coarse"` stay readable at the call site and remain two
+    different grids where it matters.
+    """
+    import hashlib
+
+    return hashlib.sha256(label.encode()).hexdigest()
+
+
 def stage(stage_id, kind="geometry", bindings=None, emits=None, grid="pass_grid",
           provider="spice", models=None):
     return StageSpec(
         stage_id=stage_id, kind=kind, provider_id=provider, config_dialect=provider,
-        config_ref=HEX, grid=GridRef(grid_id=grid), bindings=bindings or {}, emits=emits or [],
+        config_ref=HEX, grid=GridRef(grid_hash=_grid_digest(grid)), bindings=bindings or {},
+        emits=emits or [],
         models=models or [],
     )
 
@@ -436,7 +449,7 @@ def test_a_stage_must_state_its_models_even_when_there_are_none():
     would make that indistinguishable from a field nobody reached."""
     with pytest.raises(ValidationError):
         StageSpec(stage_id="s", kind="geometry", provider_id="spice", config_dialect="spice",
-                  config_ref=HEX, grid=GridRef(grid_id="g"), bindings={}, emits=[])
+                  config_ref=HEX, grid=GridRef(grid_hash="9"*64), bindings={}, emits=[])
     assert stage("s").models == []
     assert model_versions(RunSpec(experiment_hash=HEX, run_index=0,
                                   stages=[stage("s")])) == frozenset()

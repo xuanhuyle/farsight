@@ -29,6 +29,7 @@ import typer
 
 from farsight.cli import exit_codes
 from farsight.cli.fetch import app as fetch_app
+from farsight.cli.geometry import geometry_command
 
 __all__ = ["app", "main"]
 
@@ -54,6 +55,9 @@ def _version() -> str:
 
 
 app.add_typer(fetch_app, name="fetch")
+
+# A LEAF command, not a group (ADR-024 decision 1). `farsight geometry --design PATH --out DIR`.
+app.command("geometry")(geometry_command)
 
 
 @app.callback(invoke_without_command=True)

@@ -266,3 +266,74 @@ def test_no_freeze_time_error_under_engines():
         "refusal in the parent-side validator that should have caught it:\n  "
         + "\n  ".join(violations)
     )
+
+
+def test_determinism_rules():
+    """ADR-006 Enforcement 5, specified as first green by week 1 and not implemented until now.
+
+    AST-scans ``src/farsight/`` outside ``analysis/`` and fails on ``datetime.now``,
+    ``time.time``, ``os.getpid``, ``socket.gethostname`` and ``os.listdir``. The ban exists for
+    one reason: each of these returns a value that differs between two otherwise identical runs,
+    and any of them reaching a hashed artifact destroys bitwise reproducibility.
+
+    **Two sites are allowed, and the allowlist is closed.** The rule as ADR-006 words it is
+    broader than the architecture it serves -- two things the design requires cannot be written
+    without a banned name -- so each exception is enumerated with the reason its value cannot
+    reach a hashed artifact. The list is asserted to be exactly these two, so a third use fails
+    this test until somebody edits the list and writes down why. That is the whole mechanism:
+    the exception is cheap, and it is not silent.
+
+    The runtime half of ADR-006's item 5 -- that each worker observes single-threaded limits --
+    needs the worker, which does not exist, and is named here so the gap is visible.
+    """
+    import ast
+
+    src = REPO / "src" / "farsight"
+    banned = {"now": "datetime.now", "time": "time.time", "getpid": "os.getpid",
+              "gethostname": "socket.gethostname", "listdir": "os.listdir"}
+
+    # path -> (banned attribute, why the value cannot reach a hashed artifact)
+    ALLOWED = {
+        "cli/geometry.py": (
+            "now",
+            "ADR-012's `ts_utc` for the audit row. The audit log is explicitly NOT package "
+            "content (ADR-006, ADR-012): timestamps live only in the unhashed provenance half, "
+            "and a log of when things happened cannot be written without reading a clock.",
+        ),
+        "registry/atomic.py": (
+            "getpid",
+            "A temp filename component, so two concurrent writers do not collide on the same "
+            "sibling path. The file is renamed over the destination and the name is discarded; "
+            "no hashed artifact ever contains it.",
+        ),
+    }
+
+    found: dict[str, list[str]] = {}
+    for path in sorted(src.rglob("*.py")):
+        rel = path.relative_to(src).as_posix()
+        if rel.startswith("analysis/"):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr in banned:
+                found.setdefault(rel, []).append(f"{banned[node.attr]} (line {node.lineno})")
+
+    offenders = [
+        f"{rel}: {', '.join(uses)}"
+        for rel, uses in sorted(found.items())
+        if rel not in ALLOWED
+    ]
+    assert not offenders, (
+        "non-deterministic calls under src/farsight/ (ADR-006 Enforcement 5). Each returns a "
+        "value that differs between two otherwise identical runs; if it can reach a hashed "
+        "artifact it destroys bitwise reproducibility. Add an ALLOWLIST entry with the reason "
+        "its value cannot, or remove the call:\n  " + "\n  ".join(offenders)
+    )
+
+    # The allowlist is closed in the other direction too: an entry whose call has been removed is
+    # a licence nobody is using, and it would silently re-permit the name if it came back.
+    stale = sorted(set(ALLOWED) - set(found))
+    assert not stale, (
+        f"allowlist entries with no matching call: {stale}. Remove them, or the exception "
+        f"outlives the reason for it"
+    )

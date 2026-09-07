@@ -64,6 +64,7 @@ from farsight.schemas.common import (
     Quantity,
     Ref,
     SEGMENT_RE,
+    validate_segment,
     VersionedDocument,
 )
 
@@ -154,12 +155,13 @@ MIN_CONSEQUENCE_CHARS = 20  # what breaks if this is false; the first thing an a
 
 
 def _check_id(v: str, field: str) -> str:
-    if not SEGMENT_RE.match(v) or len(v) > MAX_SEGMENT_CHARS:
+    try:
+        validate_segment(v, what=field)
+    except ValueError as exc:
         raise ValueError(
-            f"{field} {v!r} is outside the segment grammar (ADR-017 rule 3). It is a label a "
-            f"human says out loud, never a key: identity is the digest (ADR-001), and two "
-            f"objects sharing this name are still two objects."
-        )
+            f"{exc}. It is a label a human says out loud, never a key: identity is the digest "
+            f"(ADR-001), and two objects sharing this name are still two objects."
+        ) from exc
     return v
 
 

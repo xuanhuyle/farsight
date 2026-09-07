@@ -68,6 +68,7 @@ from farsight.schemas.common import (
     Quantity,
     Ref,
     SEGMENT_RE,
+    validate_segment,
     VersionedDocument,
 )
 
@@ -192,12 +193,11 @@ class Claim(VersionedDocument):
     @field_validator("claim_id", "run_set")
     @classmethod
     def _check_name(cls, v: str) -> str:
-        if not SEGMENT_RE.match(v) or len(v) > MAX_SEGMENT_CHARS:
-            raise ValueError(
-                f"{v!r} is outside the segment grammar (ADR-017 rule 3). It is a label a human "
-                f"says out loud; identity is the digest."
-            )
-        return v
+        try:
+            return validate_segment(v, what="name")
+        except ValueError as exc:
+            raise ValueError(f"{exc}. It is a label a human says out loud; identity is the "
+                             f"digest.") from exc
 
     @field_validator("sentence", "falsifier")
     @classmethod

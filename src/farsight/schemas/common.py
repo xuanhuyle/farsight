@@ -39,6 +39,8 @@ __all__ = [
     "is_under",
     "normalize_decimal",
     "validate_path",
+    "validate_segment",
+    "WINDOWS_RESERVED",
 ]
 
 # ADR-001 rule 2. Exact, and validated rather than described:
@@ -92,6 +94,54 @@ def is_ref(s: str) -> bool:
     return bool(_HEX64_RE.match(s))
 
 
+# ADR-017 rule 3's reserved-device-name ban, applied to EVERY segment rather than only the first,
+# so that a future flattening of the channel directory cannot reintroduce the hazard.
+#
+# MEASURED 2026-09-07 on Windows 11 (10.0.22621) with CPython 3.12, resolving the "UNVERIFIED --
+# confirm at implementation time" note ADR-017 attaches to this list. Writing ten bytes and
+# reading them back:
+#
+#     con, aux, prn, com1, lpt1   ordinary files; ten bytes back; appear in the directory listing
+#     nul                         write SUCCEEDS, read returns ZERO bytes, no error raised,
+#                                 and the name never appears in the directory listing
+#
+# With any extension (`con.margin.npy`, `nul.npy`) all six behaved as ordinary files. So the
+# hazard on this platform is narrower than the list -- and its one live member is the worst kind
+# there is. A channel written to `nul` would report success, hash as an empty array, and ship a
+# package that verifies clean and contains no data. That is the silent-wrong-answer class this
+# product exists to prevent, which is why the full list stays rather than being trimmed to what
+# bites today: the measurement covers one Windows build and one Python version, and a ban that is
+# already correct costs nothing to keep.
+WINDOWS_RESERVED: frozenset[str] = frozenset(
+    ["con", "prn", "aux", "nul"]
+    + [f"com{i}" for i in range(1, 10)]
+    + [f"lpt{i}" for i in range(1, 10)]
+)
+
+
+def validate_segment(s: str, *, what: str = "segment") -> str:
+    """Return ``s`` when it is a well-formed single segment, or raise ``ValueError``.
+
+    One function rather than the seven hand-rolled copies of this check that used to exist, so
+    the reserved-device-name ban cannot be present at six call sites and absent at the seventh.
+    """
+    if not SEGMENT_RE.match(s):
+        raise ValueError(
+            f"{what} {s!r} is outside the ADR-017 segment grammar: lowercase ASCII, digits, and "
+            f"single underscores between them, with no leading or trailing underscore"
+        )
+    if len(s) > MAX_SEGMENT_CHARS:
+        raise ValueError(f"{what} {s!r} is {len(s)} characters, over the {MAX_SEGMENT_CHARS} cap")
+    if s in WINDOWS_RESERVED:
+        raise ValueError(
+            f"{what} {s!r} is a Windows reserved device name (ADR-017 rule 3). Channel names "
+            f"become filenames verbatim (ADR-020 decision 7), and a write to `nul` succeeds, "
+            f"returns zero bytes on read, and raises nothing -- so the channel would hash as an "
+            f"empty array and ship in a package that verifies clean"
+        )
+    return s
+
+
 def is_under(path: str, subtree: str) -> bool:
     """True when ``path`` is ``subtree`` itself or lies beneath it (ADR-017 decision 6).
 
@@ -121,8 +171,7 @@ def validate_path(s: str) -> str:
             f"topology path {s!r} has {len(segments)} segments, over the {MAX_PATH_SEGMENTS} cap"
         )
     for segment in segments:
-        if len(segment) > MAX_SEGMENT_CHARS:
-            raise ValueError(f"path segment {segment!r} is over the {MAX_SEGMENT_CHARS} cap")
+        validate_segment(segment, what="path segment")
     return s
 
 

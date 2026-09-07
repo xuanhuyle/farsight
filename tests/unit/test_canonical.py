@@ -246,3 +246,66 @@ def test_hash_is_stable_across_a_process_boundary(tmp_path: Path):
         check=True,
     )
     assert out.stdout.strip() == local
+
+
+def test_no_hashed_model_declares_a_set_typed_field():
+    """Closes the one leg of the hash-randomization hazard that is checkable today.
+
+    `PYTHONHASHSEED` cannot be pinned from inside a running interpreter -- CPython reads it only
+    at startup, so assigning it to `os.environ` and reading it back produces a green test and no
+    effect. Measured here: with `os.environ["PYTHONHASHSEED"] = "0"` set at runtime,
+    `sys.flags.hash_randomization` is still 1.
+
+    That matters for exactly one reason. A `set` or `frozenset` field survives Pydantic's
+    `model_dump(mode="json")` as a **list in set-iteration order**, so the canonicalizer never
+    sees a set and never gets the chance to refuse one -- and the same logical object then hashes
+    differently in two processes. ADR-005 names the live instance it is worried about: a
+    per-module seed map whose iteration order would otherwise leak into hashed results.
+
+    The environment pin is ADR-002's problem and belongs with the worker, which does not exist
+    yet. The leak path is this repository's problem and it is closed here, before there is a set
+    to remove.
+    """
+    import importlib
+    import pkgutil
+
+    from pydantic import BaseModel
+
+    import farsight.schemas as schemas_pkg
+
+    offenders: list[str] = []
+    for module_info in pkgutil.iter_modules(schemas_pkg.__path__):
+        module = importlib.import_module(f"farsight.schemas.{module_info.name}")
+        for obj in vars(module).values():
+            if not (isinstance(obj, type) and issubclass(obj, BaseModel)):
+                continue
+            if obj.__module__ != module.__name__:
+                continue
+            for field_name, field in obj.model_fields.items():
+                annotation = str(field.annotation)
+                if "set[" in annotation or "Set[" in annotation or "frozenset" in annotation:
+                    offenders.append(f"{obj.__module__}.{obj.__name__}.{field_name}: {annotation}")
+
+    assert not offenders, (
+        "set-typed fields in hashed models. A set survives model_dump as a list in iteration "
+        "order, so the canonicalizer cannot refuse it and the object hashes differently in two "
+        "processes. Use a sorted tuple and make the order part of the document:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_setting_pythonhashseed_at_runtime_does_not_disable_randomization():
+    """The measurement behind the lint above, executed rather than asserted in prose.
+
+    If this ever starts failing, CPython has changed and the reasoning in the neighbouring test
+    needs revisiting -- which is the point of measuring it here rather than citing it.
+    """
+    import os
+    import sys
+
+    os.environ["PYTHONHASHSEED"] = "0"
+    assert os.environ["PYTHONHASHSEED"] == "0"
+    assert sys.flags.hash_randomization == 1, (
+        "hash randomization is off in this interpreter, so this test cannot demonstrate the "
+        "hazard; it was started with PYTHONHASHSEED already set in the environment"
+    )

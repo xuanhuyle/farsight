@@ -39,6 +39,7 @@ from farsight.schemas.common import (
     Quantity,
     Ref,
     SEGMENT_RE,
+    validate_segment,
     ValidityEnvelope,
     VersionedDocument,
     validate_path,
@@ -116,9 +117,7 @@ class PerGroup(FrozenModel):
     @field_validator("per_group")
     @classmethod
     def _check_name(cls, v: str) -> str:
-        if not SEGMENT_RE.match(v) or len(v) > MAX_SEGMENT_CHARS:
-            raise ValueError(f"enumeration name {v!r} is outside the segment grammar")
-        return v
+        return validate_segment(v, what="enumeration name")
 
 
 # ADR-027 retires `per_pass`: it had no referent, since no record defined how a scenario
@@ -572,9 +571,7 @@ class EpistemicCollapse(VersionedDocument):
     @field_validator("collapse_id")
     @classmethod
     def _check_id(cls, v: str) -> str:
-        if not SEGMENT_RE.match(v) or len(v) > MAX_SEGMENT_CHARS:
-            raise ValueError(f"collapse_id {v!r} is outside the segment grammar (ADR-017 rule 3)")
-        return v
+        return validate_segment(v, what="collapse_id")
 
     @field_validator("original_belief")
     @classmethod

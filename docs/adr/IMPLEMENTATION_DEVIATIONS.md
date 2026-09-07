@@ -824,3 +824,113 @@ be unreachable in a frozen design rather than the only check.
 
 **Status:** Open. The run-time half is enforced and mutation-checked; the freeze half is absent
 and is not claimed anywhere in the code or docs to exist.
+
+## DEV-18 — `GridRef` carries a digest, which ADR-020 requires and ADR-018 spells differently
+
+**Record:** [ADR-018](ADR-018-run-composition.md) decision 1 — `class GridRef(BaseModel):
+grid_id: str`, and rule 4, "the producing and consuming stages declare the same `grid.grid_id`";
+[ADR-020](ADR-020-channel-model.md) decision 4 — `grid_hash` "is what ADR-018's `StageSpec.grid`
+and ADR-015's `GeometryRequest.epochs` reference, both of which are `Ref`-shaped and therefore
+admit only a digest"
+**Code:** `src/farsight/schemas/execution.py`
+
+**What differs.** `GridRef` holds `grid_hash: Ref` — a bare 64-hex content address — where ADR-018
+writes `grid_id: str`, a segment-grammar name. The stage-compatibility check of ADR-018 rule 4
+compares digests rather than ids. The field name `grid` and the type name `GridRef` are unchanged.
+
+**Why.** The two accepted records disagree, and ADR-020 is the one that governs: ADR-018's own
+comment on that line says "ADR-020 owns the grid descriptor itself", and ADR-020 then names
+ADR-018's `StageSpec.grid` explicitly as one of the two fields that admit only a digest.
+
+Following ADR-018's literal spelling would also make rule 4 unable to do its job. Two grids can
+share a human-chosen id while describing different time bases, so comparing ids would pass two
+stages sitting on genuinely different grids — which is precisely the "silent-killer class this
+rule exists to close" that rule 4's own text names. A digest cannot be shared by two different
+grids.
+
+Changed rather than left as a deviation-in-code because nothing is frozen yet. After the first
+package ships, altering this field invalidates every archived `spec_hash`, and ADR-020 records
+that the identity scheme is effectively permanent once customers hold packages.
+
+**Closes by:** ADR-031 or ADR-032 superseding ADR-018 decision 1's `GridRef` block, or an
+amendment recording that ADR-020 decision 4 governs the reference shape.
+
+**Status:** Open. The code follows ADR-020; ADR-018's code block still says otherwise and cannot
+be edited.
+
+
+## DEV-19 — `test_determinism_rules` ships with a two-entry allowlist the record does not provide for
+
+**Record:** [ADR-006](ADR-006-reproducibility-tiers.md) Enforcement 5 — "AST-scans
+`src/farsight/` outside `analysis/` and fails on `datetime.now`, `time.time`, `os.getpid`,
+`socket.gethostname` and `os.listdir`"
+**Code:** `tests/unit/test_no_false_validation.py`; `src/farsight/cli/geometry.py`;
+`src/farsight/registry/atomic.py`
+
+**What differs.** The lint is implemented as specified and then permits exactly two sites, each
+with a written reason. ADR-006 states the ban with no exception mechanism.
+
+**Why.** Two things the architecture requires cannot be written without a banned name, and both
+were already in the tree before this lint existed.
+
+`cli/geometry.py` calls `datetime.now` for ADR-012's `ts_utc`. The audit log records when things
+happened; it cannot be written without reading a clock, and ADR-012 and ADR-006 both put it
+outside every evidence hash precisely so that reading one is safe there.
+
+`registry/atomic.py` calls `os.getpid` for a temp filename component, so two concurrent writers
+do not collide on the same sibling path. The name is discarded by `os.replace` and reaches no
+hashed artifact.
+
+The alternative — dropping the two names from the banned list — would have been worse: it removes
+the check everywhere to accommodate two places, and `datetime.now` reaching a hashed document is
+exactly the failure the rule exists to catch. The allowlist is asserted to be *exactly* those two
+entries in both directions, so a third use fails the test until somebody writes down why, and an
+entry whose call has been removed fails it too.
+
+**Closes by:** a superseding record either granting ADR-006 Enforcement 5 an allowlist with these
+two entries, or naming a different mechanism for the audit timestamp and the temp-file suffix.
+
+**Status:** Open. The lint is green and the allowlist is closed and documented.
+
+
+## DEV-20 — the weeks 1-2 exit gate is met on a synthetic kernel, not on Psyche and not in a container
+
+**Record:** FARSIGHT_FOUNDATION_PLAN.md §17 — the weeks 1-2 exit gate, *"`farsight geometry`
+emits hash-stable Psyche pass geometry, bitwise-reproducible in container"*;
+[ADR-019](ADR-019-reference-container.md) (the container that is not built);
+[ADR-024](ADR-024-cli-surface.md) decision 1 (the verb)
+**Code:** `tests/unit/test_geometry_gate.py`; `tests/fixtures/synthetic_spk.py`;
+`src/farsight/cli/run_geometry.py`
+
+**What differs.** Three words of the gate are not met, and the passing test says so in its own
+module docstring rather than in this ledger alone:
+
+* **Psyche** — no Psyche SPK has been downloaded; that needs founder approval and disk that is
+  spent permanently, because the kernel cache is never garbage-collected by design. The gate runs
+  against a FarSight-authored synthetic SPK of two fictional bodies moving on straight lines.
+* **in container** — ADR-019's reference image is not built. What is shown is bitwise stability
+  within one machine, across two runs and across two processes.
+* **pass geometry** — there is no station, no visibility model and no pass. A two-kernel set
+  (one LSK, one SPK) supports inertial body-to-body geometry and nothing body-fixed; ADR-015's
+  `ITRF93` and a station topocentric frame both need kernels that are not present.
+
+**Why.** The machinery can be built and tested honestly before the download is spent, and doing
+it in that order is what let the gate find real defects — a reserved channel name that would have
+been silently swallowed by the `nul` device, an audit write that crashed in a stripped
+environment, and a grid reference that compared names instead of addresses. What the synthetic
+kernel cannot do is say anything about real ephemerides: it exercises furnish order, content
+addressing, coverage refusal, the light-time solver and every refusal on the path, and it is not
+evidence about Psyche.
+
+The one thing it does check beyond plumbing is that the numbers are right *for the trajectory it
+declares*: the fictional bodies move on straight lines, so the geometric range has a closed form,
+and CSPICE is compared against it rather than only against itself. Measured agreement is 0.0 km
+at one epoch and 6e-8 km at another, the residual being float64 rounding in the Lagrange
+interpolation.
+
+**Closes by:** the Psyche SPK and station kernels acquired under founder approval, ADR-019's
+reference image built, and `ci-geometry-crosscheck` green against an external golden — at which
+point the synthetic fixture stays as a plumbing test and stops being the gate.
+
+**Status:** Open. The gate is green on the terms stated above and on no others; no document in
+this repository claims the Psyche or container legs are met.

@@ -80,6 +80,7 @@ from farsight.schemas.common import (
     Quantity,
     Ref,
     SEGMENT_RE,
+    validate_segment,
     VersionedDocument,
     is_under,
     validate_path,
@@ -150,16 +151,23 @@ _GROUPED_ORIGINS = frozenset({"aleatory_draw"})
 
 
 class GridRef(FrozenModel):
-    """A reference to the run's sample grid. ADR-020 owns the descriptor itself."""
+    """A reference to the run's sample grid: its digest, and nothing else.
 
-    grid_id: str
+    ADR-020 decision 4 owns the descriptor and is explicit about the reference:
+    ``grid_hash = sha256(JCS(sample_grid))`` "is what ADR-018's ``StageSpec.grid`` and ADR-015's
+    ``GeometryRequest.epochs`` reference, both of which are ``Ref``-shaped and therefore admit
+    only a digest".
 
-    @field_validator("grid_id")
-    @classmethod
-    def _check(cls, v: str) -> str:
-        if not SEGMENT_RE.match(v) or len(v) > MAX_SEGMENT_CHARS:
-            raise ValueError(f"grid_id {v!r} is outside the segment grammar (ADR-017 rule 3)")
-        return v
+    This field carried a segment-grammar ``grid_id`` until Stage 6. That was a name where the
+    record asks for an address, and the difference is not cosmetic: two grids can share a
+    human-chosen id while describing different time bases, and the stage-compatibility check below
+    compared exactly those ids -- so it would have passed two stages sitting on genuinely
+    different grids, which is the silent-killer class that check exists to close. A digest cannot
+    do that. Changed rather than recorded as a deviation because nothing is frozen yet; after the
+    first package ships it would invalidate every archived ``spec_hash``.
+    """
+
+    grid_hash: Ref
 
 
 class ChannelSource(FrozenModel):
@@ -233,11 +241,10 @@ class ValueSource(FrozenModel):
     def _check_group_member(self) -> "ValueSource":
         if self.group_member is None:
             return self
-        if not SEGMENT_RE.match(self.group_member) or len(self.group_member) > MAX_SEGMENT_CHARS:
-            raise ValueError(
-                f"group_member {self.group_member!r} is outside the segment grammar. It names an "
-                f"enumeration member (ADR-027)."
-            )
+        try:
+            validate_segment(self.group_member, what="group_member")
+        except ValueError as exc:
+            raise ValueError(f"{exc}. It names an enumeration member (ADR-027).") from exc
         # A numeric-looking member name is legal: ADR-017 permits numeric segments, and "a
         # numeric suffix is characters only and carries no meaning". It is not refused here
         # because refusing it would be a rule no record states. What matters is that nothing
@@ -400,9 +407,7 @@ class StageSpec(FrozenModel):
     @field_validator("provider_id", "config_dialect")
     @classmethod
     def _check_segment(cls, v: str) -> str:
-        if not SEGMENT_RE.match(v) or len(v) > MAX_SEGMENT_CHARS:
-            raise ValueError(f"{v!r} is outside the segment grammar (ADR-017 rule 3)")
-        return v
+        return validate_segment(v, what="stage_id")
 
     @field_validator("emits")
     @classmethod
@@ -533,10 +538,11 @@ class RunSpec(VersionedDocument):
                         f"{source.channel!r} from {source.from_stage!r}, which does not declare "
                         f"it; that stage emits {producer.emits} (ADR-018 rule 3)."
                     )
-                if producer.grid.grid_id != stage.grid.grid_id:
+                if producer.grid.grid_hash != stage.grid.grid_hash:
                     raise SpecCompositionError(
-                        f"stage {stage.stage_id!r} (grid {stage.grid.grid_id!r}) reads a channel "
-                        f"from {source.from_stage!r} (grid {producer.grid.grid_id!r}) "
+                        f"stage {stage.stage_id!r} (grid {stage.grid.grid_hash[:12]}...) reads a "
+                        f"channel from {source.from_stage!r} "
+                        f"(grid {producer.grid.grid_hash[:12]}...) "
                         f"(ADR-018 rule 4). Elementwise consumption of a channel computed on a "
                         f"different time base is the silent-killer class this rule closes."
                     )

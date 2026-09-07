@@ -271,9 +271,24 @@ def test_only_the_cache_module_writes_to_the_cache():
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 if node.func.id == "write_atomic":
                     writers.append(rel)
-    # The object store and the kernel cache are the two sanctioned writers; nothing else.
-    assert set(writers) <= {"registry/objects.py", "registry/kernel_cache.py"}, (
-        f"write_atomic called outside the two stores: {sorted(set(writers))}"
+    # The sanctioned writers, each named with what it owns. This list is the point of the lint:
+    # a fourth entry appearing without a reason is a second path by which bytes reach disk.
+    #
+    #   registry/objects.py       the content-addressed object store
+    #   registry/kernel_cache.py  the kernel cache -- the one ADR-016 decision 5 is about
+    #   registry/channels.py      channel .npy files and channels_manifest.json (ADR-011)
+    #
+    # `registry/audit.py` is deliberately absent and is NOT an oversight: SQLite owns its own
+    # durability there (WAL plus `synchronous=FULL`), which is what ADR-011 chose a database for.
+    # It writes no file through this helper, so it cannot appear in this list.
+    sanctioned = {"registry/objects.py", "registry/kernel_cache.py", "registry/channels.py"}
+    assert set(writers) <= sanctioned, (
+        f"write_atomic called outside the sanctioned stores: {sorted(set(writers) - sanctioned)}"
+    )
+    # ADR-016 decision 5 is specifically about the CACHE, so the added writer must not touch it.
+    channels_src = (SRC / "registry" / "channels.py").read_text(encoding="utf-8")
+    assert "kernel_cache" not in channels_src and "cache_root" not in channels_src, (
+        "registry/channels.py references the kernel cache; only KernelCache.put may write there"
     )
 
 

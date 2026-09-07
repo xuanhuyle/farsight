@@ -64,3 +64,35 @@ jobs:
         # `geometry_is_not_an_engine` can only be violated once spiceypy is importable, so this
         # is the leg where that contract does real work.
         run: lint-imports
+      - name: the geometry command runs end to end on Linux
+        # The weeks 1-2 exit gate as an INVOCATION, not only as a test import. The console-script
+        # lesson one job up applies here too: `run_geometry` being green in pytest says nothing
+        # about `farsight geometry` being wired into the Typer app, and that wiring is what ships.
+        #
+        # Cross-platform hash stability is the point of running it here as well as on Windows.
+        # The channel hash is over JCS(header) plus the raw float64 payload, so a Linux/Windows
+        # difference would mean CSPICE arithmetic or the .npy path differs between them -- which
+        # is exactly ADR-006's Tier-A claim, at the one granularity available before ADR-019's
+        # container exists.
+        run: |
+          python - <<'EOF'
+          import json, subprocess, sys, tempfile
+          from pathlib import Path
+          sys.path.insert(0, "tests")
+          sys.path.insert(0, "tests/unit")
+          from test_geometry_gate import _design_dict, _populate_cache
+          home = Path(tempfile.mkdtemp())
+          lsk, spk, ls, ss = _populate_cache(home)
+          design = Path(tempfile.mkdtemp()) / "design.json"
+          design.write_text(json.dumps(_design_dict(lsk, spk, ls, ss), indent=2))
+          out = Path(tempfile.mkdtemp())
+          r = subprocess.run(["farsight", "--json", "geometry", "--design", str(design),
+                              "--out", str(out), "--home", str(home)],
+                             capture_output=True, text=True)
+          print(r.stdout, r.stderr)
+          assert r.returncode == 0, f"exit {r.returncode}"
+          summary = json.loads(r.stdout)
+          print("LINUX CHANNEL HASHES")
+          for line in summary["channels"]:
+              print("  ", line)
+          EOF

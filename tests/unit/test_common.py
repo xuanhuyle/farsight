@@ -310,3 +310,93 @@ def test_decimal_below_the_fixed_point_floor_is_refused_naming_the_renderer():
     with pytest.raises(ValueError, match="fixed-point floor"):
         Quantity(magnitude=Decimal("1e-31"), unit="m")
     assert Quantity(magnitude=Decimal("1e-30"), unit="m").magnitude.startswith("0.000")
+
+
+# ------------------------------------------------------------------------------------------
+# ADR-017 rule 3's reserved-device-name ban, and the measurement that justifies keeping it whole.
+# ------------------------------------------------------------------------------------------
+
+
+def test_windows_reserved_device_names_are_refused_in_every_segment():
+    """ADR-017 rule 3, and ADR-017 Enforcement 1's "any Windows reserved device name in any
+    segment", which was specified as first green by week 1 and was not implemented.
+
+    Every segment, not only the first: ADR-017 gives the reason, which is that a future
+    flattening of the channel directory would otherwise reintroduce the hazard.
+    """
+    from farsight.schemas.common import WINDOWS_RESERVED, validate_path, validate_segment
+
+    for name in ("con", "prn", "aux", "nul", "com1", "com9", "lpt1", "lpt9"):
+        assert name in WINDOWS_RESERVED
+        with pytest.raises(ValueError, match="reserved device name"):
+            validate_segment(name)
+        # ... and in a trailing segment, which is the position a channel leaf occupies.
+        with pytest.raises(ValueError, match="reserved device name"):
+            validate_path(f"geometry.{name}")
+        with pytest.raises(ValueError, match="reserved device name"):
+            validate_path(f"{name}.margin")
+
+    # Names that merely contain a reserved name are fine; the rule is on whole segments.
+    for ok in ("geometry.range", "run.t_elapsed", "console", "nullable", "com10", "lpt0"):
+        validate_path(ok)
+
+
+def test_the_nul_hazard_is_real_and_is_silent(tmp_path):
+    """The measurement behind the ban, executed rather than quoted.
+
+    On Windows, writing to `nul` succeeds, reads back zero bytes, raises nothing, and leaves no
+    directory entry. A channel written there would hash as an empty array and ship inside a
+    package that verifies clean -- which is why the refusal is a refusal and not a warning.
+
+    On POSIX `nul` is an ordinary filename, so the assertion is platform-split rather than
+    skipped: the ban is unconditional either way, and this test says why it has to be.
+    """
+    import sys
+
+    target = tmp_path / "nul"
+    target.write_bytes(b"0123456789")
+    read_back = target.read_bytes()
+    listed = [p.name for p in tmp_path.iterdir()]
+
+    if sys.platform == "win32":
+        assert read_back == b"", (
+            "the Windows `nul` device swallowed the write silently -- if this ever stops being "
+            "true the ban is still correct, but this test's stated reason has changed"
+        )
+        assert "nul" not in listed
+    else:
+        assert read_back == b"0123456789"
+        assert "nul" in listed
+
+
+def test_nobody_hand_rolls_the_segment_check():
+    """The mechanical half of the fix.
+
+    This defect existed because seven modules each open-coded
+    `SEGMENT_RE.match(v) or len(v) > MAX_SEGMENT_CHARS`, so a rule added to the grammar reached
+    none of them. One function now owns it, and this lint keeps it that way: a hand-rolled copy
+    is how the ban goes missing at the seventh call site again.
+    """
+    import ast
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    src = repo / "src" / "farsight"
+    offenders: list[str] = []
+    for path in sorted(src.rglob("*.py")):
+        if path.name == "common.py":
+            continue  # the module that defines the grammar is where it may be used directly
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == "match"
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "SEGMENT_RE"
+            ):
+                offenders.append(f"{path.relative_to(repo).as_posix()}:{node.lineno}")
+    assert not offenders, (
+        "SEGMENT_RE.match called outside common.py; use validate_segment() so the "
+        "reserved-device-name ban and the length cap travel with the grammar:\n  "
+        + "\n  ".join(offenders)
+    )

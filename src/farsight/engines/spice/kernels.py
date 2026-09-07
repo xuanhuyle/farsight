@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Iterator, Sequence
 
 from farsight.registry.kernel_cache import KernelCache
-from farsight.schemas.errors import UnhonorableSpec
+from farsight.schemas.errors import MissingEngineExtra, UnhonorableSpec
 from farsight.schemas.kernels import KernelRef
 
 # `UnhonorableSpec` is a `WorkerError`, not a `FreezeTimeError`, and the distinction is enforced:
@@ -39,7 +39,7 @@ from farsight.schemas.kernels import KernelRef
 # boundary, so a freeze-time exception raised here could never reach the parent as itself. What
 # it means is still "this spec should not have reached me" -- ADR-023 reads a worker-side refusal
 # as a report that the freeze-time completeness check has a hole.
-__all__ = ["UnhonorableSpec", "furnish_in_order", "clear_pool", "furnished_pool", "loaded_count"]
+__all__ = ["UnhonorableSpec", "MissingEngineExtra", "furnish_in_order", "clear_pool", "furnished_pool", "loaded_count"]
 
 
 def _spiceypy():
@@ -52,7 +52,7 @@ def _spiceypy():
     try:
         import spiceypy  # noqa: PLC0415 - deliberate; see docstring
     except ImportError as exc:  # pragma: no cover - exercised by the auditor install, not by CI
-        raise UnhonorableSpec(
+        raise MissingEngineExtra(
             "the `spice` extra is not installed, so no kernel can be furnished. This is the "
             "auditor's install (ADR-007): `verify` runs without it, and only `replay` of a run "
             "with a geometry stage needs it."

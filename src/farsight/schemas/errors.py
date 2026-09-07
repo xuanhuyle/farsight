@@ -41,6 +41,7 @@ __all__ = [
     "KernelCoverageError",
     "WorkerError",
     "UnhonorableSpec",
+    "MissingEngineExtra",
 ]
 
 
@@ -100,4 +101,15 @@ class UnhonorableSpec(WorkerError):
     raised or imported under ``src/farsight/engines/``. An engine runs inside a worker, and
     nothing but bytes crosses the pool boundary, so a freeze-time exception raised there is a
     category error that could never reach the parent as itself.
+    """
+
+
+class MissingEngineExtra(WorkerError):
+    """A provider needs an optional install that is not present.
+
+    Distinct from :class:`UnhonorableSpec` because ADR-024's exit-code registry distinguishes
+    them: "a required engine extra is not installed" is `environment_refusal` (14), while an
+    unhonorable spec is `precondition_refusal` (20). Collapsing the two would tell an operator
+    whose install is incomplete that their design is wrong -- and the two have completely
+    different fixes.
     """
