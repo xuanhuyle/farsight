@@ -787,8 +787,32 @@ and is deliberately **not** made piecemeal here.
 **Closes by:** the coverage-declaration record (ADR-031 in the self-audit review's numbering),
 which supersedes this clause of ADR-004 and states what an empty envelope asserts.
 
-**Status:** internally cross-checked. Not externally expert-reviewed.
+**Update 2026-09-07 — RESOLVED for this file, by a route this entry did not anticipate.**
 
+The PDS4 `psyche_spice` bundle ships **the same `naif0012.tls`** under a published
+`checksum.tab` of MD5s. The bytes already in the cache were checked against the MD5 listed there
+and **they match**. So the sentence above — "it establishes that everyone afterwards gets the same
+bytes we got, not that the bytes we got were the bytes NAIF published" — is no longer the strongest
+thing that can be said about this kernel: the bytes we got ARE the bytes NAIF published, and an
+independent manifest says so.
+
+Stated precisely, because the upgrade is real but bounded. MD5 is not collision-resistant, so this
+is not a strong cryptographic claim; what it is, is an **independent** one, which
+trust-on-first-use never was. It rules out transport corruption and substitution by anyone unable
+to construct a collision. FarSight's own address remains SHA-256, computed from the verified bytes.
+
+`fetch_kernel` and `farsight fetch kernel` now take `--expect-md5` for exactly this: a FIRST
+acquisition can be verified against a publisher's digest, which `--expect-sha256` cannot do
+because our address is not knowable until the bytes exist. All nine pinned kernels carry
+`acquisition: "publisher_checksum_verified"`.
+
+**The general problem is NOT closed.** NAIF still publishes no checksums for the generic kernels
+at `/pub/naif/generic_kernels/`. Any kernel taken from there, and not also present in a PDS4
+bundle, is still trust-on-first-use. What changed is that the PDS4 route exists and should be
+preferred wherever a file is available both ways.
+
+**Status:** Resolved for `naif0012.tls` and for the eight Psyche PDS4 kernels. Open as a general
+rule for NAIF generic kernels with no published digest.
 ## DEV-17 — the coverage check exists, but at run time, and the freeze validator does not
 
 **Record:** [ADR-016](ADR-016-kernel-sets.md) — `kernel_coverage_completeness` is specified as a
@@ -932,9 +956,33 @@ interpolation.
 reference image built, and `ci-geometry-crosscheck` green against an external golden — at which
 point the synthetic fixture stays as a plumbing test and stops being the gate.
 
-**Status:** Open. The gate is green on the terms stated above and on no others; no document in
-this repository claims the Psyche or container legs are met.
+**Update 2026-09-07 — two of the three qualifications are now met.**
 
+The Psyche kernels were acquired under founder approval: nine files, 46.2 MiB, every one verified
+against the MD5 published in the PDS4 bundle's `checksum.tab` rather than trust-on-first-use.
+
+* **Psyche** — met. `tests/unit/test_psyche_real_geometry.py` runs the same `RunSpec` path against
+  the actual reconstructed trajectory (`psyche_rec_231207-240304_240321_v1.bsp`) and the actual
+  DSOC ground stations, and is hash-stable across two runs.
+* **pass geometry** — met. `psyche_fk_v10.tf` defines `PSYC_DSOC_PALOMAR_TOPO`, so elevation is
+  computed in a real topocentric frame: on 2024-01-15 Psyche rises from 9.6 deg, peaks at 81.7 deg
+  at 06:00 UTC and sets by 15:00. That also settles an UNVERIFIED item in ADR-015 decision 5 —
+  the PDS4 set DOES ship station topocentric frames, so the FarSight-authored FK that record
+  describes as a contingency is not needed.
+* **in container** — still NOT met. ADR-019's reference image is not built, and no cross-OS or
+  cross-ISA claim is made. What is shown remains two runs, two processes, one machine.
+
+The synthetic-SPK leg is kept rather than retired: it exercises the same machinery with no
+download, so CI has an unconditional green path, and the real leg skips cleanly when the 46 MiB is
+absent.
+
+**What is still not established, and is not implied by any of the above:** nothing here compares
+these numbers to an independent source. They come from JPL's own reconstructed trajectory and are
+computed by CSPICE. ADR-015's `ci-geometry-crosscheck` against Horizons is a separate check and is
+not implemented, so "hash-stable" and "agrees with the kernels" are the claims — not "correct".
+
+**Status:** Open, narrowed. Psyche and pass geometry met; the container leg and the independent
+cross-check remain.
 ## DEV-21 — RESOLVED: geometry moved onto `RunSpec`, and `GeometryDesign` was retired
 
 **Record:** [ADR-018](ADR-018-run-composition.md) decision 1 — "A run with no engine stage is a

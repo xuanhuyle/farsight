@@ -325,6 +325,7 @@ def test_acquire_is_imported_only_by_the_cli_fetch_module():
 # --------------------------------------------------------------------------------------
 
 import json as _json
+import re
 
 MANIFEST = REPO / "kernels" / "pinned_kernels.json"
 
@@ -344,13 +345,50 @@ def test_the_pinned_manifest_is_well_formed():
         assert row["url"].startswith("https://")
 
 
+ACQUISITION_MODES = {
+    # NAIF publishes no checksums for the generic kernels, so a file taken from there and nowhere
+    # else was verified against nothing on its first fetch. Genuinely weaker than the rest of the
+    # system provides, and a row that did not say so would read as verified provenance (DEV-16).
+    "trust_on_first_use",
+    # A PDS4 bundle ships a checksum.tab, so these bytes were checked against a digest FarSight
+    # did not produce. MD5, so not collision-resistant -- but INDEPENDENT, which TOFU never was.
+    "publisher_checksum_verified",
+}
+
+
 def test_every_pin_declares_how_it_was_acquired():
-    """NAIF publishes no checksums, so the first acquisition of each kernel is trust-on-first-use
-    -- a genuinely weaker property than the rest of the system provides. A row that does not say
-    so would read as verified provenance (DEV-16)."""
+    """A pin has to say what its digest is worth, because the two modes are not equivalent.
+
+    Checked against a CANARY row rather than by looping over clean data. Every real row currently
+    carries a valid mode, so a plain `assert row["acquisition"] in ...` cannot fail and deleting
+    it would change no test outcome -- a guard that passes vacuously is a guard nobody is keeping.
+    The canary makes the check itself observable: it must catch exactly the bad row and no real
+    one.
+    """
+    doc = _json.loads(MANIFEST.read_text(encoding="utf-8"))
+    rows = list(doc["kernels"])
+    canary = dict(rows[0], logical_name="__canary__", acquisition="verified")
+
+    unrecognised = [r["logical_name"] for r in [*rows, canary]
+                    if r["acquisition"] not in ACQUISITION_MODES]
+    assert unrecognised == ["__canary__"], (
+        f"expected only the canary to be rejected, got {unrecognised}. A real pin with an "
+        f"unrecognised acquisition mode does not say what its digest is worth"
+    )
+
+
+def test_a_publisher_verified_pin_carries_the_digest_and_where_it_came_from():
+    """`publisher_checksum_verified` is a stronger claim than `trust_on_first_use`, so it has to
+    be checkable: the digest and the manifest URL are both recorded, and anyone can re-run the
+    comparison. A mode that asserted verification without saying against what would be worse than
+    the honest weaker label."""
     doc = _json.loads(MANIFEST.read_text(encoding="utf-8"))
     for row in doc["kernels"]:
-        assert row["acquisition"] in {"trust_on_first_use", "publisher_digest", "pds_checksum"}
+        if row["acquisition"] != "publisher_checksum_verified":
+            continue
+        name = row["logical_name"]
+        assert re.fullmatch(r"[0-9a-f]{32}", row.get("publisher_md5", "")), name
+        assert row.get("publisher_checksum_url", "").startswith("https://"), name
 
 
 def test_no_pin_points_at_a_mutable_alias():
@@ -383,3 +421,70 @@ def test_the_pinned_lsk_digest_is_the_one_this_repo_fetched():
         "678e32bdb5a744117a467cd9601cd6b373f0e9bc9bbde1371d5eee39600a039b"
     )
     assert lsk[0]["size_bytes"] == 5257
+
+
+# ------------------------------------------------------------------------------------------
+# Publisher digests. DEV-16 recorded that a first acquisition could verify nothing, because our
+# own address is not knowable until the bytes exist. A publisher's manifest breaks that circle.
+# ------------------------------------------------------------------------------------------
+
+
+def test_a_publisher_md5_verifies_a_first_acquisition(tmp_path):
+    """The case trust-on-first-use could not cover.
+
+    PDS4 bundles publish a `checksum.tab` of MD5s, so a file being fetched for the FIRST time --
+    whose SHA-256 nobody has stated yet, because it is computed from the very bytes in question --
+    can still be checked against something the downloader did not produce.
+    """
+    import hashlib
+
+    payload = b"KPL/LSK\nfictional bytes for a first acquisition\n"
+    md5 = hashlib.md5(payload).hexdigest()
+
+    artifact, path = fetch_kernel(
+        URL, None, KernelCache(tmp_path), license_note="test",
+        expect_md5=md5, opener=lambda _u: payload,
+    )
+    assert path.read_bytes() == payload
+    # Our address is still SHA-256, computed from the bytes the publisher attested to.
+    assert artifact.sha256 == hashlib.sha256(payload).hexdigest()
+
+
+def test_bytes_that_do_not_match_the_published_digest_are_refused(tmp_path):
+    import hashlib
+
+    payload = b"the bytes that actually arrived"
+    wrong_md5 = hashlib.md5(b"the bytes the manifest describes").hexdigest()
+
+    with pytest.raises(AcquisitionError, match="the publisher listed"):
+        fetch_kernel(URL, None, KernelCache(tmp_path), license_note="test",
+                     expect_md5=wrong_md5, opener=lambda _u: payload)
+
+
+def test_both_digests_are_checked_when_both_are_given(tmp_path):
+    """A pinned file fetched again is checked against BOTH: our address and the publisher's."""
+    import hashlib
+
+    payload = b"pinned and published"
+    good_md5 = hashlib.md5(payload).hexdigest()
+    good_sha = hashlib.sha256(payload).hexdigest()
+
+    fetch_kernel(URL, good_sha, KernelCache(tmp_path), license_note="t",
+                 expect_md5=good_md5, opener=lambda _u: payload)
+
+    # A wrong SHA-256 is still refused even when the publisher's MD5 matches.
+    with pytest.raises(AcquisitionError, match="not the"):
+        fetch_kernel(URL, "f" * 64, KernelCache(tmp_path / "b"), license_note="t",
+                     expect_md5=good_md5, opener=lambda _u: payload)
+
+
+def test_a_fetch_with_no_declared_digest_is_refused(tmp_path):
+    """The precondition survives the new parameter.
+
+    Allowing both to be None would turn this function into one that hashes whatever turned up and
+    files the result as provenance -- which is the distinction the module docstring draws between
+    provenance and a log line.
+    """
+    with pytest.raises(AcquisitionError, match="digest declared before the bytes arrive"):
+        fetch_kernel(URL, None, KernelCache(tmp_path), license_note="t",
+                     opener=lambda _u: b"anything")

@@ -33,8 +33,16 @@ def fetch_kernel_command(
     ctx: typer.Context,
     url: Annotated[str, typer.Option("--url", help="Source URL (https).")],
     expect_sha256: Annotated[
-        str, typer.Option("--expect-sha256", help="The digest the bytes must have. Required.")
-    ],
+        str | None,
+        typer.Option("--expect-sha256",
+                     help="FarSight's content address for these bytes, when it is already known."),
+    ] = None,
+    expect_md5: Annotated[
+        str | None,
+        typer.Option("--expect-md5",
+                     help="The MD5 the PUBLISHER stated, e.g. from a PDS4 bundle's checksum.tab. "
+                          "Verifies a first acquisition, which --expect-sha256 cannot."),
+    ] = None,
     into: Annotated[
         Path | None, typer.Option("--into", help="Cache root. Defaults to $FARSIGHT_HOME/kernels.")
     ] = None,
@@ -44,7 +52,13 @@ def fetch_kernel_command(
                      help="Redistribution terms, recorded with the artifact."),
     ] = "",
 ) -> None:
-    """Fetch a kernel, verify it against the declared digest, and cache it."""
+    """Fetch a kernel, verify it against a declared digest, and cache it.
+
+    At least one of --expect-sha256 and --expect-md5 is required, and both are checked when both
+    are given. Neither has a default and there is no flag to skip verification: ADR-012 makes the
+    digest a precondition, so that a fetch is a CHECK on what arrived rather than a description
+    of it.
+    """
     # Imported here rather than at module scope so that `farsight --help` does not construct the
     # acquisition path at all. The network stays behind the verb that needs it.
     from farsight.acquire.fetch import AcquisitionError, fetch_kernel
@@ -57,7 +71,7 @@ def fetch_kernel_command(
 
     try:
         artifact, path = fetch_kernel(
-            url, expect_sha256, cache, license_note=license_note
+            url, expect_sha256, cache, license_note=license_note, expect_md5=expect_md5
         )
     except AcquisitionError as exc:
         typer.echo(str(exc), err=True)

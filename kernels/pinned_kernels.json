@@ -15,7 +15,17 @@
     "A row is added by fetching, hashing, and writing the result down. Changing an existing row",
     "is not a maintenance action: a kernel's bytes do not change, so a differing digest means",
     "either the publisher reissued the file under the same name or something is wrong, and both",
-    "need a human to look rather than an edit."
+    "need a human to look rather than an edit.",
+    "",
+    "PSYCHE PDS4 SET, added 2026-09-07. Unlike the generic kernels, these come from a PDS4",
+    "bundle that publishes a checksum.tab of MD5s, so each was verified against a digest",
+    "FarSight did not produce. `farsight fetch kernel --expect-md5` is that path. The sha256",
+    "recorded here is still FarSight's own content address, computed from the verified bytes.",
+    "",
+    "MD5 is not collision-resistant. What a publisher MD5 buys is an independent attestation",
+    "-- it rules out transport corruption and substitution by anyone who cannot construct a",
+    "collision. It does not make the chain cryptographically strong, and saying otherwise",
+    "would overstate it."
   ],
   "kernels": [
     {
@@ -25,7 +35,7 @@
       "sha256": "678e32bdb5a744117a467cd9601cd6b373f0e9bc9bbde1371d5eee39600a039b",
       "size_bytes": 5257,
       "acquired_on": "2026-09-07",
-      "acquisition": "trust_on_first_use",
+      "acquisition": "publisher_checksum_verified",
       "license_note": "NAIF generic kernel; NASA/JPL public domain, redistributable unmodified.",
       "note": [
         "The leapsecond kernel. ADR-016 decision 6 requires exactly one LSK per KernelSet, which",
@@ -38,7 +48,136 @@
         "cross-platform golden would fail for a reason that has nothing to do with physics.",
         "",
         "Do NOT pin latest_leapseconds.tls. It is a symlink NAIF updates in place, so the same URL",
-        "returns different bytes over time -- exactly what content addressing exists to prevent."
+        "returns different bytes over time -- exactly what content addressing exists to prevent.",
+        "",
+        "ACQUISITION UPGRADED 2026-09-07. This was fetched trust-on-first-use (DEV-16), because",
+        "NAIF publishes no checksums for the generic kernels. The PDS4 psyche_spice bundle ships",
+        "the SAME FILE under a checksum.tab, and the bytes already in the cache were checked",
+        "against the MD5 published there: they match. So the pin is now independently attested",
+        "rather than merely self-consistent. MD5 is not collision-resistant and this is therefore",
+        "not a strong cryptographic claim -- it is an INDEPENDENT one, which TOFU never was."
+      ],
+      "publisher_md5": "25a2fff30b0dedb4d76c06727b1895b1",
+      "publisher_checksum_url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/checksum.tab"
+    },
+    {
+      "logical_name": "de440s.bsp",
+      "kernel_type": "spk",
+      "url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/psyche_spice/spice_kernels/spk/de440s.bsp",
+      "sha256": "c1c7feeab882263fc493a9d5a5b2ddd71b54826cdf65d8d17a76126b260a49f2",
+      "size_bytes": 32726016,
+      "acquired_on": "2026-09-07",
+      "acquisition": "publisher_checksum_verified",
+      "publisher_md5": "3917ee56769db332790c751e2168843d",
+      "publisher_checksum_url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/checksum.tab",
+      "license_note": "NASA/JPL-Caltech NAIF, PDS4 psyche_spice bundle. Public domain, redistributable.",
+      "note": [
+        "planetary ephemeris: Earth and Sun states"
+      ]
+    },
+    {
+      "logical_name": "psyche_rec_231207-240304_240321_v1.bsp",
+      "kernel_type": "spk",
+      "url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/psyche_spice/spice_kernels/spk/psyche_rec_231207-240304_240321_v1.bsp",
+      "sha256": "1bd2c482092077169a9ccc288f84110aeab50ade1ca4777e01dc603061edaa2e",
+      "size_bytes": 10402816,
+      "acquired_on": "2026-09-07",
+      "acquisition": "publisher_checksum_verified",
+      "publisher_md5": "f0ccc11248b27f35641e15051cf8bb10",
+      "publisher_checksum_url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/checksum.tab",
+      "license_note": "NASA/JPL-Caltech NAIF, PDS4 psyche_spice bundle. Public domain, redistributable.",
+      "note": [
+        "Psyche reconstructed trajectory 2023-12..2024-03"
+      ]
+    },
+    {
+      "logical_name": "psyche_dsoc_palomar_v01.bsp",
+      "kernel_type": "spk",
+      "url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/psyche_spice/spice_kernels/spk/psyche_dsoc_palomar_v01.bsp",
+      "sha256": "93ccc0b1f3ff500d63be6af6d8e1ce0e57b15d7bfe27bf71926eb6f5fec8328e",
+      "size_bytes": 6144,
+      "acquired_on": "2026-09-07",
+      "acquisition": "publisher_checksum_verified",
+      "publisher_md5": "c2ac43a15f2e250b38f716bca90f0bf5",
+      "publisher_checksum_url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/checksum.tab",
+      "license_note": "NASA/JPL-Caltech NAIF, PDS4 psyche_spice bundle. Public domain, redistributable.",
+      "note": [
+        "DSOC ground station: Palomar (downlink receiver)"
+      ]
+    },
+    {
+      "logical_name": "psyche_dsoc_octl_v01.bsp",
+      "kernel_type": "spk",
+      "url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/psyche_spice/spice_kernels/spk/psyche_dsoc_octl_v01.bsp",
+      "sha256": "023a3fb82d236813b44fdbf060b2c5dd1e898a2d4c92c16be209581d640bfece",
+      "size_bytes": 6144,
+      "acquired_on": "2026-09-07",
+      "acquisition": "publisher_checksum_verified",
+      "publisher_md5": "9565621a75841d0315fe5a041cbdfc0b",
+      "publisher_checksum_url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/checksum.tab",
+      "license_note": "NASA/JPL-Caltech NAIF, PDS4 psyche_spice bundle. Public domain, redistributable.",
+      "note": [
+        "DSOC ground station: OCTL (uplink)"
+      ]
+    },
+    {
+      "logical_name": "psyche_fk_v10.tf",
+      "kernel_type": "fk",
+      "url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/psyche_spice/spice_kernels/fk/psyche_fk_v10.tf",
+      "sha256": "54581f3937bd57ab7459546c7f950904c25c7d64b30503060c5b35ed269b94e3",
+      "size_bytes": 123412,
+      "acquired_on": "2026-09-07",
+      "acquisition": "publisher_checksum_verified",
+      "publisher_md5": "5c4c3f877fc4dde675f0aa8e5f160808",
+      "publisher_checksum_url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/checksum.tab",
+      "license_note": "NASA/JPL-Caltech NAIF, PDS4 psyche_spice bundle. Public domain, redistributable.",
+      "note": [
+        "Psyche frames, including station topocentric frames"
+      ]
+    },
+    {
+      "logical_name": "earth_000101_260827_260601.bpc",
+      "kernel_type": "pck",
+      "url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/psyche_spice/spice_kernels/pck/earth_000101_260827_260601.bpc",
+      "sha256": "87a21d11365fc72f95f960792195f03bad014f6e8a2a9da159876f3528d04bf2",
+      "size_bytes": 5076992,
+      "acquired_on": "2026-09-07",
+      "acquisition": "publisher_checksum_verified",
+      "publisher_md5": "90505baed3e54e93c6367db2340796c4",
+      "publisher_checksum_url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/checksum.tab",
+      "license_note": "NASA/JPL-Caltech NAIF, PDS4 psyche_spice bundle. Public domain, redistributable.",
+      "note": [
+        "binary Earth orientation PCK: what realizes ITRF93"
+      ]
+    },
+    {
+      "logical_name": "pck00010.tpc",
+      "kernel_type": "pck",
+      "url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/psyche_spice/spice_kernels/pck/pck00010.tpc",
+      "sha256": "59468328349aa730d18bf1f8d7e86efe6e40b75dfb921908f99321b3a7a701d2",
+      "size_bytes": 126143,
+      "acquired_on": "2026-09-07",
+      "acquisition": "publisher_checksum_verified",
+      "publisher_md5": "da153641f7346bd5b6a1226778e0d51b",
+      "publisher_checksum_url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/checksum.tab",
+      "license_note": "NASA/JPL-Caltech NAIF, PDS4 psyche_spice bundle. Public domain, redistributable.",
+      "note": [
+        "planetary constants"
+      ]
+    },
+    {
+      "logical_name": "psyche_v01.tpc",
+      "kernel_type": "pck",
+      "url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/psyche_spice/spice_kernels/pck/psyche_v01.tpc",
+      "sha256": "db3022d92851b6a1cf61e9fb0204f98a4977a49c92268f94a4d13f3ece7dad56",
+      "size_bytes": 5020,
+      "acquired_on": "2026-09-07",
+      "acquisition": "publisher_checksum_verified",
+      "publisher_md5": "892e3b5d017df7c6258f2fddbee6a628",
+      "publisher_checksum_url": "https://naif.jpl.nasa.gov/pub/naif/pds/pds4/psyche/checksum.tab",
+      "license_note": "NASA/JPL-Caltech NAIF, PDS4 psyche_spice bundle. Public domain, redistributable.",
+      "note": [
+        "Psyche body constants"
       ]
     }
   ]
