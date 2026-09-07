@@ -39,14 +39,32 @@ __all__ = ["GeometryChannel", "GeometryDesign"]
 
 
 class GeometryChannel(FrozenModel):
-    """One request, and the channel its answer is written to."""
+    """One request, the channel its answer is written to, and the unit that answer is in.
+
+    ``unit`` is declared here rather than looked up from the adapter, and the reason is the whole
+    argument of ADR-015 decision 6 applied one layer up. The unit enters every ``channel_hash``
+    (ADR-011 decision 2). If it lived only in a table inside the SPICE adapter, changing it would
+    move every channel hash while the design hash stayed put -- "the number changes, the hash
+    changes, and nothing in the package says why", which is the shape ADR-015 Option 7 was
+    rejected for.
+
+    It is checked against what the provider actually produces rather than used to convert:
+    a declared unit that disagrees with the computed one is refused, because converting here
+    would be a second numeric path that no hash covers.
+    """
 
     channel: str
+    unit: str
     request: GeometryRequest
 
     @model_validator(mode="after")
     def _check_channel(self) -> GeometryChannel:
         validate_channel_name(self.channel)
+        if not self.unit or self.unit.strip() != self.unit:
+            raise ValueError(
+                "a channel unit is a non-empty astropy-parseable symbol, '1' for dimensionless "
+                "(ADR-008); an empty string is a second spelling for dimensionless"
+            )
         return self
 
 

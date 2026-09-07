@@ -72,7 +72,13 @@ def geometry_command(
     design: Annotated[Path, typer.Option("--design", help="Path to a GeometryDesign JSON file.")],
     out: Annotated[Path, typer.Option("--out", help="Output directory for channels.")],
     home: Annotated[
-        Path | None, typer.Option("--home", help="FarSight home. Defaults to $FARSIGHT_HOME.")
+        Path | None,
+        typer.Option(
+            "--home",
+            help="FarSight home. Also accepted before the verb as a global option; "
+                 "`farsight --home X geometry ...` and `farsight geometry --home X ...` are "
+                 "the same thing.",
+        ),
     ] = None,
     shadow_units: Annotated[
         bool,
@@ -87,6 +93,13 @@ def geometry_command(
     parent = ctx.obj or {}
     as_json = bool(parent.get("json"))
     quiet = bool(parent.get("quiet"))
+
+    # ADR-024 makes `--home` global, accepted on every command. Declaring it locally as well and
+    # then reading only the local value made `farsight --home X geometry ...` silently use the
+    # DEFAULT home -- reading kernels from one place and writing the audit chain to another, with
+    # no error. The local option wins when given, because that is the more specific statement;
+    # otherwise the global one is honoured rather than dropped.
+    home = home if home is not None else parent.get("home")
 
     # Imported inside the command so that `farsight --help` and every other verb still work on an
     # install without the `spice` extra. ADR-007 makes the auditor's zero-extras install the

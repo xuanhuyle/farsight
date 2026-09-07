@@ -98,9 +98,16 @@ def run_geometry(
     with furnished_pool(list(design.kernel_set.kernels), cache):
         for entry in design.channels:
             values = compute(entry.request, epochs)
-            unit = QUANTITY_UNITS[entry.request.quantity_class]
+            produced = QUANTITY_UNITS[entry.request.quantity_class]
+            if entry.unit != produced:
+                raise GeometryDesignError(
+                    f"channel {entry.channel!r} declares unit {entry.unit!r} but a "
+                    f"{entry.request.quantity_class} through this provider is in {produced!r}. "
+                    f"Refused rather than converted: a conversion here would be a second numeric "
+                    f"path that no hash covers (ADR-008 puts conversion at the boundary)"
+                )
             rows.append(
-                write_channel(out_dir, entry.channel, unit, values, grid_digest,
+                write_channel(out_dir, entry.channel, entry.unit, values, grid_digest,
                               expect_samples=design.grid.n_samples)
             )
 
@@ -120,7 +127,9 @@ def run_geometry(
     # ADR-012: an append-only row for every mutating CLI action, from v0. The action is `run`
     # because ADR-012's enumeration is closed; the design path is what distinguishes this from a
     # campaign when an auditor reads the chain (ADR-024).
-    log = AuditLog(Path(farsight_home(home)) / "farsight.sqlite")
+    # ADR-011 decision 1: "One file per workspace, `registry.sqlite`", holding only the run
+    # ledger, the alias registry and the audit log.
+    log = AuditLog(Path(farsight_home(home)) / "registry.sqlite")
     log.append(
         "run",
         {

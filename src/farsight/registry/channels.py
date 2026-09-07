@@ -179,6 +179,12 @@ def write_channel(
         "shape": list(array.shape),
         "grid_hash": grid_digest,
         "channel_hash": digest,
+        # ADR-020 decision 8: a run that stops early truncates every channel to one index k and
+        # the manifest records `samples_written: k`, while the grid descriptor stays unchanged --
+        # the grid is a declared input, not a report of what happened. Equal to shape[0] here
+        # because `expect_samples` refuses a short channel outright, but the key exists so a
+        # reader never has to infer it, and so the manifest model is not closed at eight fields.
+        "samples_written": int(array.shape[0]),
         "nonfinite_count": nonfinite_count,
         "first_nonfinite_index": first_nonfinite,
     }

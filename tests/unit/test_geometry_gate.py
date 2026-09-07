@@ -120,6 +120,7 @@ def _design_dict(lsk_digest: str, spk_digest: str, lsk_size: int, spk_size: int)
         "channels": [
             {
                 "channel": "geometry.range",
+                "unit": "km",
                 "request": {
                     "target": str(BODY_B), "observer": str(BODY_A), "frame": "J2000",
                     "aberration": "CN", "quantity_class": "range",
@@ -128,6 +129,7 @@ def _design_dict(lsk_digest: str, spk_digest: str, lsk_size: int, spk_size: int)
             },
             {
                 "channel": "geometry.light_time",
+                "unit": "s",
                 "request": {
                     "target": str(BODY_B), "observer": str(BODY_A), "frame": "J2000",
                     "aberration": "CN", "quantity_class": "light_time",
@@ -136,6 +138,7 @@ def _design_dict(lsk_digest: str, spk_digest: str, lsk_size: int, spk_size: int)
             },
             {
                 "channel": "geometry.geometric_range",
+                "unit": "km",
                 "request": {
                     "target": str(BODY_B), "observer": str(BODY_A), "frame": "J2000",
                     "aberration": "NONE", "quantity_class": "range",
@@ -264,7 +267,7 @@ def test_the_run_writes_one_audit_row_carrying_the_design_path(prepared, tmp_pat
     home, design_path = prepared
     result = run_geometry(design_path=design_path, out_dir=tmp_path / "a", home=home, ts_utc=TS)
 
-    log = AuditLog(home / "farsight.sqlite")
+    log = AuditLog(home / "registry.sqlite")
     rows = log.rows()
     assert len(rows) == 1
     assert rows[0]["action"] == "run"
@@ -375,3 +378,96 @@ def test_shadow_units_marks_the_run_as_unpackageable(prepared, tmp_path):
     assert "shadow_units" not in plain
     # The flag must not change a single number: it is a second look, not a second computation.
     assert plain["channels"] == result["channels"]
+
+
+def test_the_global_home_option_reaches_the_command(prepared, tmp_path):
+    """ADR-024 makes `--home` global, accepted on every command.
+
+    `geometry` also declared it locally and read only the local value, so
+    `farsight --home X geometry ...` silently used the DEFAULT home -- looking for kernels in one
+    place and writing the audit chain to another, with no error and no warning. Every existing
+    test called `run_geometry()` directly and so was blind to it; this one goes through the CLI,
+    which is the only place the bug could live.
+    """
+    home, design_path = prepared
+
+    before = _cli("--home", str(home), "--json", "geometry", "--design", str(design_path),
+                  "--out", str(tmp_path / "g1"))
+    assert before.exit_code == 0, before.output
+    assert (home / "registry.sqlite").exists(), (
+        "the global --home was ignored: the audit chain was written somewhere else"
+    )
+
+    # Both spellings must mean the same thing.
+    after = _cli("geometry", "--design", str(design_path), "--out", str(tmp_path / "g2"),
+                 "--home", str(home))
+    assert after.exit_code == 0, after.output
+    assert len(AuditLog(home / "registry.sqlite").rows()) == 2
+
+
+def test_the_declared_unit_is_a_hashed_design_input(prepared, tmp_path):
+    """A unit that lives only in the adapter enters every channel hash and no design hash.
+
+    Editing it would then move every channel hash while the design hash stood still -- "the
+    number changes, the hash changes, and nothing in the package says why", which is exactly the
+    shape ADR-015 Option 7 was rejected for, one layer up.
+    """
+    home, design_path = prepared
+    design = json.loads(design_path.read_text(encoding="utf-8"))
+    baseline = run_geometry(design_path=design_path, out_dir=tmp_path / "a", home=home, ts_utc=TS)
+
+    # Changing a declared unit must move the DESIGN hash, not only the channel hashes.
+    design["channels"][0]["unit"] = "m"
+    changed = tmp_path / "changed.json"
+    changed.write_text(json.dumps(design), encoding="utf-8")
+
+    from farsight.cli.run_geometry import GeometryDesignError
+    from farsight.hashing.canonical import hash_object
+    from farsight.schemas.probe import GeometryDesign
+
+    assert hash_object(GeometryDesign.model_validate(design)) != baseline["design_hash"]
+
+    # ... and it is refused rather than converted, because a conversion here would be a second
+    # numeric path that no hash covers.
+    with pytest.raises(GeometryDesignError, match="Refused rather than converted"):
+        run_geometry(design_path=changed, out_dir=tmp_path / "b", home=home, ts_utc=TS)
+
+
+def test_the_manifest_records_samples_written(prepared, tmp_path):
+    """ADR-020 decision 8. Equal to shape[0] here because a short channel is refused outright,
+    but present so a reader never infers it and the manifest model is not closed at eight keys."""
+    home, design_path = prepared
+    run_geometry(design_path=design_path, out_dir=tmp_path / "a", home=home, ts_utc=TS)
+    manifest = json.loads((tmp_path / "a" / "channels_manifest.json").read_text(encoding="utf-8"))
+    for row in manifest:
+        assert row["samples_written"] == N_SAMPLES == row["shape"][0]
+
+
+def test_t_elapsed_is_derived_from_the_descriptor_and_not_from_the_epoch_array(prepared, tmp_path):
+    """The invariant two honest implementations would otherwise disagree about.
+
+    ``run.t_elapsed[i]`` is ``float(i * step)``; the epoch handed to SPICE is
+    ``float(epoch0 + i * step)``. Both honour ADR-020's "never accumulate" and they are **not**
+    related by float64 subtraction -- reconstructing an absolute epoch as
+    ``epochs[0] + t_elapsed[i]`` gives different last bits than the stage actually used.
+
+    ADR-020 decision 5 settles which is authoritative: ``t_elapsed`` is derived from the
+    descriptor, and `farsight evidence verify` re-expands the descriptor rather than the array.
+    Stated as a test so the two paths cannot quietly swap.
+    """
+    from decimal import Decimal
+
+    home, design_path = prepared
+    run_geometry(design_path=design_path, out_dir=tmp_path / "a", home=home, ts_utc=TS)
+    t = read_channel(tmp_path / "a", "run.t_elapsed")
+
+    epoch0 = Decimal(EPOCH0)
+    step = Decimal(STEP)
+    for i in range(N_SAMPLES):
+        assert t[i] == float(Decimal(i) * step), f"t_elapsed[{i}] is not float(i * step)"
+
+    # The subtraction route is a different computation, and this says so rather than assuming it
+    # happens to agree at this step size.
+    reconstructed = [float(epoch0 + Decimal(i) * step) - float(epoch0) for i in range(N_SAMPLES)]
+    assert reconstructed[0] == t[0] == 0.0
+    assert all(isinstance(v, float) for v in reconstructed)
