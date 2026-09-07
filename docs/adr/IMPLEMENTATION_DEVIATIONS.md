@@ -1001,12 +1001,16 @@ sub-metre, under matched conventions" is what may be said.
 made. And a referent genuinely independent of JPL's solution -- a radiometric tracking residual, a
 published DSOC figure -- is not in hand.
 
-**A decision is open and is the founder's.** ADR-030 makes an acceptance tolerance a founder
-decision. The test carries REGRESSION bounds (2.0 m, 0.5 arcsec), set just above what was measured
-so a change fails; they are deliberately not an accuracy budget and not a customer promise.
+**The tolerance decision is CLOSED.** Set by the founder on 2026-09-07 at **10 m on range and
+1 arcsec on elevation** -- margins of 14.5x and 7.5x over what was measured. The boundary was
+verified by injection (9 m passes, 11 m fails; 0.934 arcsec passes, 1.004 arcsec fails), and the
+convention errors the check exists to catch remain far outside it: a defaulted aberration is 73,500
+tolerances out, a dropped stellar-aberration term 18. Chosen tighter than a re-solved trajectory
+would move things, so changing a pinned kernel fails this check by design rather than silently
+re-goldening.
 
-**Status:** Open, narrowed twice. Psyche, pass geometry and the geometry cross-check are met; the
-container leg, a solution-independent referent, and the acceptance tolerance remain.
+**Status:** Open, narrowed twice. Psyche, pass geometry, the geometry cross-check and its tolerance
+are met; the container leg and a solution-independent referent remain.
 
 
 ## DEV-21 — RESOLVED: geometry moved onto `RunSpec`, and `GeometryDesign` was retired

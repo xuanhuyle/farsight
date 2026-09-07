@@ -10,6 +10,11 @@ read from the artifact, never copied into prose". So the query was made once, th
 archived beside this file, and its digest is asserted here -- a golden that changed silently would
 be a cross-check comparing against whatever someone edited it to say.
 
+**The tolerance is 10 m on range and 1 arcsec on elevation**, set by the founder on 2026-09-07
+under ADR-030, which makes an acceptance tolerance a decision somebody owns rather than a number
+read off a measurement. Measured agreement is 0.69 m and 0.134 arcsec, so the margins are 14.5x
+and 7.5x.
+
 **WHAT THIS DOES AND DOES NOT ESTABLISH -- read before quoting the numbers.**
 
 Horizons states its own source in the archived header: ``{source: psyche_merged}``. That is JPL's
@@ -59,14 +64,32 @@ ORDER = ["naif0012.tls", "pck00010.tpc", "psyche_v01.tpc", "earth_000101_260827_
 
 OBSERVER, TOPO_FRAME, SPACECRAFT = "PSYC_DSOC_PALOMAR", "PSYC_DSOC_PALOMAR_TOPO", "-255"
 
-# MEASURED 2026-09-07, and NOT an accuracy budget. ADR-030 makes the acceptance tolerance a
-# founder decision; these bounds are set just above what was observed so that a REGRESSION fails
-# this test, while the question of what agreement the product should promise stays open.
-# Observed worst: range 0.69 m, elevation 0.134 arcsec.
+# THE ACCEPTANCE TOLERANCE. Set by the founder on 2026-09-07, which is what ADR-030 requires: a
+# tolerance is a decision somebody owns, not a number inferred from a measurement. These are no
+# longer regression bounds -- they are what this check asserts the product's geometry agrees to.
+#
+#   measured        tolerance      margin
+#   0.69 m          10 m           14.5x
+#   0.134 arcsec    1 arcsec        7.5x
+#
+# Two consequences worth knowing before anyone loosens them.
+#
+# The 0.414 m station artefact documented in
+# `test_the_residual_is_explained_by_the_earth_radius_models_and_not_by_the_trajectory` consumes
+# about 4% of the range budget, so the budget is not being spent on a known artefact.
+#
+# And 10 m is TIGHTER than a re-solved trajectory would move things. JPL re-releases
+# reconstructed SPKs -- the Psyche archive already carries a `_v2` -- and a new solution can shift
+# a range by kilometres. This tolerance therefore makes changing the pinned kernel FAIL this
+# check, which is the intended behaviour: a re-solved trajectory is a finding to look at, not a
+# golden to quietly refresh.
+ACCEPTANCE_RANGE_M = 10.0
+ACCEPTANCE_ELEV_ARCSEC = 1.0
+
+# What was actually observed when the tolerance was set, kept so the margin stays legible and a
+# slow drift toward the limit is visible rather than merely still-passing.
 OBSERVED_RANGE_M = 0.69
 OBSERVED_ELEV_ARCSEC = 0.134
-REGRESSION_RANGE_M = 2.0
-REGRESSION_ELEV_ARCSEC = 0.5
 
 
 def _rows() -> list[dict]:
@@ -166,9 +189,11 @@ def test_range_agrees_with_horizons(furnished):
         worst = max(worst, abs(ours - row["delta_au"] * AU_KM))
 
     worst_m = worst * 1000
-    assert worst_m < REGRESSION_RANGE_M, (
-        f"range disagreement grew to {worst_m:.3f} m (was {OBSERVED_RANGE_M} m when measured). "
-        f"Over a 61.5 million km range, so this is a relative agreement of {worst / 6.15e7:.1e}"
+    assert worst_m < ACCEPTANCE_RANGE_M, (
+        f"range disagreement is {worst_m:.3f} m, over the {ACCEPTANCE_RANGE_M} m tolerance "
+        f"(it was {OBSERVED_RANGE_M} m when that tolerance was set). Over a 61.5 million km "
+        f"range, so this is a relative agreement of {worst / 6.15e7:.1e}. If the pinned kernels "
+        f"changed, this is a re-solved trajectory and wants looking at, not a refreshed golden"
     )
 
 
@@ -184,9 +209,9 @@ def test_elevation_agrees_with_horizons(furnished):
         _r, _lon, lat = spiceypy.reclat(position)
         worst = max(worst, abs(math.degrees(lat) - row["el"]) * 3600)
 
-    assert worst < REGRESSION_ELEV_ARCSEC, (
-        f"elevation disagreement grew to {worst:.4f} arcsec "
-        f"(was {OBSERVED_ELEV_ARCSEC} when measured)"
+    assert worst < ACCEPTANCE_ELEV_ARCSEC, (
+        f"elevation disagreement is {worst:.4f} arcsec, over the {ACCEPTANCE_ELEV_ARCSEC} arcsec "
+        f"tolerance (it was {OBSERVED_ELEV_ARCSEC} when that tolerance was set)"
     )
 
 

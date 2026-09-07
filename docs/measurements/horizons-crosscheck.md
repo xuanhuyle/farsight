@@ -1,7 +1,7 @@
 # `ci-geometry-crosscheck` — FarSight's SPICE pipeline vs JPL Horizons
 
 **Measured:** 2026-09-07 · **Status:** measurement, not a review sign-off · **NOT externally
-expert-reviewed** · **A tolerance decision is open — see the last section**
+expert-reviewed** · **Tolerance set by the founder 2026-09-07**
 
 Plan §14 item 3 asks for two independent implementations compared rather than merged, because a
 systematic frame or time-system error is invisible to a single implementation checked against
@@ -78,20 +78,39 @@ A check that would be independent of the solution needs a different kind of refe
 tracking residual, or a published DSOC link-budget figure — and none is in hand. That belongs in
 `EXPERT_REVIEW_BACKLOG.md`, not here.
 
-## OPEN: the acceptance tolerance is a founder decision
+## The acceptance tolerance — DECIDED
 
-ADR-030 makes an acceptance tolerance a founder decision, not something to infer from a
-measurement. The test therefore carries **regression bounds, not an accuracy budget**:
+**Set by the founder on 2026-09-07: 10 m on range, 1 arcsec on elevation.**
 
-```python
-REGRESSION_RANGE_M = 2.0        # observed 0.69
-REGRESSION_ELEV_ARCSEC = 0.5    # observed 0.134
-```
+ADR-030 makes an acceptance tolerance a decision somebody owns rather than a number inferred from
+a measurement, and this is that decision. It is now what the check asserts, not a regression bound.
 
-These are set just above what was observed, so that a *change* fails the test. They are explicitly
-**not** a statement about what agreement the product promises a customer. AT-11's 10 km and 0.01
-deg are the acceptance-test figures; whether those become the published tolerance, and whether a
-much tighter one is warranted given the measured agreement, is a decision this file does not make.
+| | measured | tolerance | margin | absolute headroom |
+|---|---|---|---|---|
+| range | 0.69 m | **10 m** | 14.5× | 9.31 m |
+| elevation | 0.134 arcsec | **1 arcsec** | 7.5× | 0.866 arcsec |
+
+The boundary was verified rather than assumed: an injected 9 m range error passes and 11 m fails;
+an injected elevation error totalling 0.934 arcsec passes and 1.004 arcsec fails.
+
+**Three things this tolerance means, worth stating before anyone reads it as slack.**
+
+*The known artefact is not eating the budget.* The 0.414 m station displacement from the Earth-
+radius model difference is about 4% of the range tolerance.
+
+*The conventions the check exists to catch are still caught, with room to spare.* A defaulted
+aberration correction moves the range by 735 km — 73,500 tolerances. Dropping stellar aberration
+from a direction moves elevation by 18.4 arcsec — 18 tolerances. Neither is close to the line.
+
+*It is deliberately tighter than a re-solved trajectory.* JPL re-releases reconstructed SPKs — the
+Psyche archive already carries a `_v2` — and a new solution can move a range by kilometres. At 10 m
+this check therefore **fails when the pinned kernel changes**, which is the intended behaviour: a
+re-solved trajectory is a finding to be looked at, not a golden to be quietly refreshed.
+
+**What it does not become.** This is the tolerance for *this* check — our implementation against
+Horizons under matched conventions. It is not a statement about absolute knowledge of where Psyche
+is, because both sides inherit JPL's solution (see the section above). AT-11's separate figures of
+10 km and 0.01 deg are unchanged by this decision; nothing here amends an accepted record.
 
 Reproduce the query with `python scripts/fetch_horizons_golden.py`; run the comparison with
 `pytest tests/unit/test_horizons_crosscheck.py`.
