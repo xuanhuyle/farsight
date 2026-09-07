@@ -21,18 +21,29 @@ catch a wrong-but-stable kernel choice.
   validation string, the comment text and the segment ids.
 * ``ifname`` and every ``segid`` are therefore **inside the digest**, so they are pinned constants
   here rather than incidental strings.
-* The bytes carry a **little-endian marker** at offset 88 (``LTL-IEEE``). Every practically
-  relevant target is little-endian, so this does not threaten the Tier-A bitwise claim -- but a
-  FarSight-authored SPK's ``sha256`` is a little-endian artifact and that is said out loud,
-  because on a big-endian host CSPICE would write byte-swapped doubles, read them back happily,
-  and surface the difference only as a cache hash mismatch far from its cause.
+* The bytes carry a **little-endian marker** at offset 88 (``LTL-IEEE``). This is a statement
+  about **content addressing**, not about reproducibility tiers: the same declared inputs
+  regenerate to the same content address on any little-endian host, which is what keeps a
+  kernel's cache address stable across the dev machine and the pinned container, and what makes
+  ADR-016 Enforcement 1's ``test_kernel_sequence_identity`` meaningful on both platforms.
+
+  It is emphatically **not** a cross-OS bitwise claim. ADR-006 forecloses one: "We can never
+  claim bitwise reproducibility across operating systems, so a Windows-only customer is
+  permanently a Tier-B customer and must be told so." Tier A is defined by container digest and
+  CPU ISA feature set, and that record keeps separate golden trees per platform for this reason.
+
+  On a big-endian host CSPICE would write byte-swapped doubles, read them back happily, and
+  surface the difference only as a cache hash mismatch far from its cause.
 * States are built from **exactly-representable constants** (powers of two). The writer stores
   IEEE-754 doubles verbatim, so the digest is exactly as reproducible as the arithmetic that
   produced the array; a value computed through a NumPy expression could move in its last bit
   across a NumPy or BLAS version and silently change the kernel's address.
-* Both bodies are centred on the **Solar System Barycentre (id 0)**. Stellar aberration needs the
-  observer's velocity relative to the SSB, so any other centre without a chain back to 0 makes
-  every ``+S`` correction fail.
+* Both bodies are centred on the **Solar System Barycentre (id 0)**. Measured on a two-body SPK
+  centred on 9010003 with no chain back to 0: ``NONE`` still succeeds, while ``LT``, ``LT+S`` and
+  ``CN+S`` all fail with ``SPICE(SPKINSUFFDATA)``. So it is not only the stellar-aberration
+  members -- every light-time solution needs the chain, because solving for light time needs the
+  observer's state in a common frame. Centring on 0 is what keeps a two-kernel set
+  self-sufficient.
 * Body ids **9010001** and **9010002** sit in a range CSPICE N0067's built-in table leaves empty.
 
 **The cache keeps its single writer.** ADR-016 decision 5 permits exactly one writer to the kernel

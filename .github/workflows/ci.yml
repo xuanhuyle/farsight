@@ -69,11 +69,16 @@ jobs:
         # lesson one job up applies here too: `run_geometry` being green in pytest says nothing
         # about `farsight geometry` being wired into the Typer app, and that wiring is what ships.
         #
-        # Cross-platform hash stability is the point of running it here as well as on Windows.
-        # The channel hash is over JCS(header) plus the raw float64 payload, so a Linux/Windows
-        # difference would mean CSPICE arithmetic or the .npy path differs between them -- which
-        # is exactly ADR-006's Tier-A claim, at the one granularity available before ADR-019's
-        # container exists.
+        # The hashes are PRINTED, not asserted equal to the Windows run, and that is deliberate.
+        # ADR-006 forecloses the claim an assertion here would imply: "We can never claim bitwise
+        # reproducibility across operating systems, so a Windows-only customer is permanently a
+        # Tier-B customer and must be told so." Tier A is defined by container digest and CPU ISA
+        # feature set, and that record keeps a separate golden tree per platform. A Linux/Windows
+        # difference in these hashes is a Tier-B finding, not a gate failure.
+        #
+        # What IS asserted is that the shipped console script runs the whole path on Linux and
+        # exits 0. The printed hashes are for a human comparing two logs, which is all the record
+        # permits until ADR-019's container exists.
         run: |
           python - <<'EOF'
           import json, subprocess, sys, tempfile
