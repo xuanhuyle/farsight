@@ -108,3 +108,72 @@ jobs:
           for line in summary["channels"]:
               print("  ", line)
           EOF
+
+  container:
+    # ADR-019's reference image, built and MEASURED. This job exists because the image cannot be
+    # built on every developer machine -- the host this was written on has Intel VT-x disabled in
+    # firmware, so no container runtime starts there at all -- while a GitHub runner has Docker.
+    # The definition-level checks live in `tests/unit/test_container.py` and run everywhere; this
+    # job is the part that needs a running image, and it is the only place the weeks 1-2 gate's
+    # "bitwise-reproducible in container" wording can actually be demonstrated.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build the reference image
+        # `build.sh` refuses a FROM line with no @sha256:, so a tag-pinned base fails here rather
+        # than producing an image nobody can obtain again.
+        run: ./container/build.sh
+        env:
+          FARSIGHT_IMAGE: farsight-reference
+          FARSIGHT_TAG: ci
+
+      - name: measure the Tier-A predicate
+        # ADR-019 decision 2: every field measured from inside the running worker, after the
+        # numeric stack has imported -- which includes forcing the engine import, because the
+        # SPICE adapter loads spiceypy lazily and CSPICE would otherwise not be mapped.
+        run: |
+          docker run --rm farsight-reference:ci python -c '
+          import json
+          from farsight.engines.environment import numeric_environment, numeric_environment_hash
+          doc = numeric_environment()
+          print(json.dumps(doc, indent=2, sort_keys=True))
+          print("numeric_environment_hash =", numeric_environment_hash(doc))
+          ' | tee fingerprint.txt
+
+      - name: the gate, twice, inside the image
+        # THE EXIT GATE'S OWN WORDING. Two runs of one frozen design in the container must produce
+        # identical channel hashes. The synthetic-SPK design is used because it needs no download;
+        # the real-Psyche leg needs 46 MiB of kernels this job does not fetch.
+        run: |
+          docker run --rm -v "$PWD/out:/out" farsight-reference:ci python - <<'EOF'
+          import json, sys, tempfile
+          from pathlib import Path
+          sys.path[:0] = ["tests", "tests/unit"]
+          from test_geometry_gate import _bundle_dict, _populate_cache
+          home = Path(tempfile.mkdtemp())
+          lsk, spk, ls, ss = _populate_cache(home)
+          design = Path(tempfile.mkdtemp()) / "run.json"
+          design.write_text(json.dumps(_bundle_dict(lsk, spk, ls, ss), indent=2))
+          from farsight.cli.run_geometry import run_geometry
+          a = run_geometry(design_path=design, out_dir=Path(tempfile.mkdtemp()), home=home,
+                           ts_utc="2026-09-07T12:00:00+00:00")
+          b = run_geometry(design_path=design, out_dir=Path(tempfile.mkdtemp()), home=home,
+                           ts_utc="2026-09-07T12:00:00+00:00")
+          assert a["channels"] == b["channels"], "NOT bitwise reproducible in the container"
+          assert a["spec_hash"] == b["spec_hash"]
+          Path("/out/channels.json").write_text(json.dumps(a["channels"], indent=2))
+          print("bitwise reproducible in container:")
+          for line in a["channels"]:
+              print("  ", line)
+          EOF
+
+      - name: the full suite inside the image
+        run: docker run --rm farsight-reference:ci python -m pytest tests/unit -q
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: numeric-environment-fingerprint
+          path: |
+            fingerprint.txt
+            out/channels.json

@@ -997,9 +997,19 @@ JPL's trajectory, because both sides would inherit it. "Validated against an ind
 remains an overstatement; "agrees with an independent implementation of the same solution, to
 sub-metre, under matched conventions" is what may be said.
 
-**Still not established:** ADR-019's container is not built, so no cross-OS or cross-ISA claim is
-made. And a referent genuinely independent of JPL's solution -- a radiometric tracking residual, a
-published DSOC figure -- is not in hand.
+**Update 2026-09-07 (third) -- the container is DEFINED but not BUILT.** `container/` now carries
+the four files ADR-019 decision 1 names, with the base pinned by digest and a build script that
+refuses an unpinned one, and `farsight.engines.environment` implements decision 2's measured
+predicate. None of it has been run: Intel VT-x is disabled in this host's firmware, so no
+container runtime starts here at all. The `container` CI job builds the image, runs the gate
+inside it twice and compares channel hashes -- so the block is one machine's rather than the
+project's. See DEV-22, DEV-23 and DEV-24; the predicate is `null` and stays `null` until it is
+measured.
+
+**Still not established:** no cross-OS or cross-ISA claim is made, and DEV-23 records that the
+ISA pins do not reach the libm path the geometry gate actually uses. And a referent genuinely
+independent of JPL's solution -- a radiometric tracking residual, a published DSOC figure -- is
+not in hand.
 
 **The tolerance decision is CLOSED.** Set by the founder on 2026-09-07 at **10 m on range and
 1 arcsec on elevation** -- margins of 14.5x and 7.5x over what was measured. The boundary was
@@ -1063,3 +1073,109 @@ distinct command; what changed is that it now executes the same document `farsig
 **Closes by:** closed.
 
 **Status:** Resolved 2026-09-07, by founder decision to move while the change was free.
+
+## DEV-22 — apt is pinned by snapshot timestamp, not by per-package `=version`
+
+**Record:** [ADR-019](ADR-019-reference-container.md) decision 1 — `packages.txt`, "every apt
+package with an exact =version pin, one per line"
+**Code:** `container/Dockerfile`; `container/packages.txt`; `container/digests.json`
+
+**What differs.** `packages.txt` enumerates the packages without version pins. The versions are
+fixed by a `snapshot.debian.org` timestamp in the `Dockerfile`
+(`20260901T000000Z`), and `build.sh` records what apt actually resolved into `digests.json`.
+
+**Why.** The snapshot reaches the record's property by a stronger route. A list of top-level
+`=version` pins fixes only the packages named; the resolver still picks transitive dependencies
+from whatever the archive holds that day, so two builds a month apart can differ in libraries
+nobody listed. Pinning the archive fixes everything the resolver can see, transitive dependencies
+included — which matters here more than usual, because `mapped_libraries` hashes the shared objects
+actually loaded and a drifting transitive dependency changes the Tier-A predicate.
+
+It also removes a class of staleness: a hand-maintained `=version` list is a second place the
+truth lives, and the failure mode is a pin that no longer exists in the archive, which breaks the
+build for a bookkeeping reason.
+
+The versions are still recorded — as a **measurement** from the build rather than as a declaration
+in a file somebody edits.
+
+**Closes by:** a superseding record accepting the snapshot mechanism, or `packages.txt` regaining
+`=version` pins generated from a build and kept in step by CI.
+
+**Status:** Open. The determinism the record asks for is achieved; the mechanism differs.
+
+
+## DEV-23 — the image does not pin libm dispatch, which is the path the geometry gate uses
+
+**Record:** [ADR-019](ADR-019-reference-container.md) decision 3, "Runtime CPU dispatch is pinned
+to a declared baseline"; ADR-006's Context, which lists "libm differences across operating
+systems" among the things that break bitwise reproducibility
+**Code:** `container/Dockerfile`; `src/farsight/engines/environment.py`
+
+**What differs.** The image sets `OPENBLAS_CORETYPE` and `NPY_DISABLE_CPU_FEATURES`, exactly as
+ADR-019 specifies. It does **not** set `GLIBC_TUNABLES`, and so does not constrain glibc's libm.
+
+**Why.** ADR-019 argues ISA normalization entirely in OpenBLAS and NumPy terms — "OpenBLAS selects
+kernels by CPUID at run time, and NumPy runs its own runtime SIMD dispatcher on top". SPICE
+geometry is CSPICE arithmetic over libm and goes through **neither**. glibc resolves
+`sin`/`cos`/`atan2`/`exp`/`pow` to FMA, AVX2 or AVX-512 variants through IFUNC at load time, so
+two runners inside the same image, both above the `x86-64-v3` baseline but with different AVX-512
+support, can produce last-bit-different ranges while `isa_enabled_features` reports the same list
+— NumPy reports what NumPy was told, and NumPy is not what computed the geometry.
+
+That is ADR-019's own 0.78-confidence falsifier ("any Tier-A bitwise mismatch between two
+environments whose `numeric_environment_hash` values agree"), and it fires on the flagship claim
+rather than an edge case.
+
+`GLIBC_TUNABLES=glibc.cpu.hwcaps=-AVX2_Usable,-AVX512F_Usable` is the candidate lever and it is
+deliberately **not** set, with the reason written into the Dockerfile beside it: setting it would
+be an unmeasured claim. Its effect has to be verified on two physically different CPU generations
+before the image can assert it changes anything, and no such measurement exists. Setting a lever
+that might do nothing, and then citing it as normalization, is worse than the honest gap.
+
+What IS done: `numeric_environment.mapped_libraries` hashes the libm and CSPICE objects actually
+mapped, so a *different* libm is visible as a different predicate. That is strictly weaker than
+making two CPUs agree, and the difference is stated rather than blurred.
+
+**Closes by:** `ci-isa-normalization` running the GEOMETRY leg on two physically different CPU
+generations and comparing channel hashes — which is also what would show whether `GLIBC_TUNABLES`
+helps. ADR-019's ENV-2 already carries the residue that a homogeneous fleet makes that job green
+while testing nothing.
+
+**Status:** Open, and this is the largest unclosed hole in the Tier-A story.
+
+
+## DEV-24 — `numeric_environment_hash` is unmeasured, because no container can run on this host
+
+**Record:** [ADR-019](ADR-019-reference-container.md) decision 2 — the Tier-A predicate, "measured
+**from inside the running worker, after the numeric stack has imported** - not declared"
+**Code:** `container/digests.json`; `container/build.sh`; `.github/workflows/ci.yml`
+
+**What differs.** `container/digests.json` carries `numeric_environment_hash: null`,
+`build_manifest_hash: null`, `accepted_image_digests: []` and `apt.resolved_versions: null`. The
+image has never been built.
+
+**Why.** Intel VT-x is disabled in this machine's UEFI firmware
+(`VirtualizationFirmwareEnabled: False` on an i7-10610U, which supports it). WSL2 therefore cannot
+start — `HCS_E_HYPERV_NOT_INSTALLED` — and with it neither Docker Desktop nor a podman-in-WSL2
+fallback. Clearing that needs a firmware change and a reboot, which is a physical act at the
+machine and not something the build can route around.
+
+Writing a plausible digest into those fields would be precisely the failure ADR-019 warns about:
+"a predicate we cannot measure is a predicate we cannot enforce." Every later Tier-A comparison
+would inherit the fabrication, and it would compare equal against nothing real.
+
+The build is therefore done where a runtime exists: the `container` CI job builds the image, runs
+the geometry gate inside it twice, compares channel hashes, and uploads the measured fingerprint.
+`test_unmeasured_fields_are_null_rather_than_plausible` fails if anyone fills the fields in
+without the build that produces them.
+
+**What is NOT claimed as a consequence:** that the image builds, that it reproduces channel hashes
+bitwise, or any Tier-A property at all. No run can be Tier A while the predicate is unmeasured.
+
+**Closes by:** the `container` CI job going green once, its measured
+`numeric_environment_hash` recorded in `digests.json`, and `measurement_status.state` moved to
+`measured` — at which point the test above starts enforcing the opposite assertions.
+
+**Status:** Open. Blocked on hardware the repository does not control; the CI path exists so the
+block is one machine's, not the project's.
+

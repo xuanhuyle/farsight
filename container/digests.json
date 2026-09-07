@@ -1,0 +1,70 @@
+{
+  "_comment": [
+    "ADR-019 decision 1: numeric_environment_hash + accepted_image_digests + build manifest hash.",
+    "Text, therefore in git under ADR-014's rules. Concrete digests live here and never in an ADR.",
+    "",
+    "READ THIS BEFORE TRUSTING numeric_environment_hash BELOW. It is null, and null is the honest",
+    "value: ADR-019 requires the predicate to be MEASURED from inside a running worker, and no",
+    "image has been built. Virtualization (Intel VT-x) is disabled in this machine's firmware, so",
+    "no container runtime can start here -- not Docker, not podman under WSL2. Writing a plausible",
+    "hash into this file would be exactly the failure the record warns about: 'a predicate we",
+    "cannot measure is a predicate we cannot enforce'. `container/build.sh` prints the measured",
+    "value at the end of a successful build; that is what goes here. Tracked as DEV-24."
+  ],
+
+  "base_image": {
+    "reference": "debian:bookworm-slim",
+    "index_digest": "sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171",
+    "linux_amd64_manifest_digest": "sha256:5ae3c39ebd15e229dcedd5cee596b2497182493d41ff162e824ba13fc1b2b867",
+    "resolved_on": "2026-09-07",
+    "resolved_from": "registry-1.docker.io/v2/library/debian",
+    "note": [
+      "The Dockerfile's FROM pins index_digest, which is the multi-arch index. The amd64 manifest",
+      "it resolves to is recorded alongside it so that a future reader can tell whether a changed",
+      "index digest actually changed the amd64 image or only added a platform.",
+      "",
+      "This carries a `sha256:` prefix and that is correct: it is an OCI reference, not a field in",
+      "a FarSight hashed document. ADR-001 decision 7's bare-hex rule governs our documents; an",
+      "OCI digest keeps the spelling its own ecosystem uses."
+    ]
+  },
+
+  "apt": {
+    "snapshot": "20260901T000000Z",
+    "archives": [
+      "https://snapshot.debian.org/archive/debian/20260901T000000Z",
+      "https://snapshot.debian.org/archive/debian-security/20260901T000000Z"
+    ],
+    "resolved_versions": null,
+    "note": [
+      "ADR-019 asks for an exact `=version` pin per package. A snapshot timestamp reaches the same",
+      "determinism by a stronger route -- it fixes the entire archive the resolver sees, so",
+      "transitive dependencies are pinned too, which top-level `=version` pins do not achieve.",
+      "See DEV-22.",
+      "",
+      "`resolved_versions` is null for the same reason as numeric_environment_hash: it is what apt",
+      "ACTUALLY resolved, which is a measurement and needs a build."
+    ]
+  },
+
+  "toolchain": {
+    "uv_version": "0.5.11",
+    "python_version": "3.12.8",
+    "note": "The interpreter is uv's, not the base image's (ADR-019 decision 1, ADR-014)."
+  },
+
+  "numeric_environment_hash": null,
+  "accepted_image_digests": [],
+  "build_manifest_hash": null,
+
+  "measurement_status": {
+    "state": "unmeasured",
+    "reason": "no container runtime on the build host: Intel VT-x is disabled in firmware, so WSL2 cannot start and neither Docker nor podman can run",
+    "blocked_on": "enable virtualization in UEFI, then Virtual Machine Platform, then rebuild",
+    "what_is_not_claimed": [
+      "that the image builds",
+      "that the image reproduces channel hashes bitwise",
+      "any Tier-A claim whatsoever -- the predicate is unmeasured, so no run can be Tier A"
+    ]
+  }
+}

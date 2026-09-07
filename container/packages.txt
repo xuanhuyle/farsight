@@ -1,0 +1,23 @@
+# Every apt package the reference image installs, one per line. ADR-019 decision 1.
+#
+# Versions are NOT pinned here with `=version`. They are pinned by the snapshot.debian.org
+# timestamp in the Dockerfile, which fixes the whole archive the resolver sees and therefore pins
+# transitive dependencies too -- something a list of top-level `=version` pins does not do.
+# `build.sh` records the versions apt actually resolved into `digests.json`, so the image reports
+# its own bill of materials rather than trusting this file to have stayed true. See DEV-22.
+#
+# `python3` is deliberately ABSENT. ADR-019 decision 1: the interpreter is not taken from the base
+# image, uv installs and pins it, so "Python 3.12" is one artifact identity shared by the
+# development machine and the container rather than an ambient property of each.
+
+# Fetching uv and the interpreter, and verifying TLS while doing it.
+ca-certificates
+curl
+
+# CSPICE is distributed as a compiled wheel, so no toolchain is needed to install spiceypy.
+# `libgomp1` is here because OpenBLAS in the numpy wheel links it; without it the thread pins
+# above would be pinning a runtime that is not present.
+libgomp1
+
+# Reading a kernel cache and an evidence package out of a container by hand.
+xz-utils

@@ -1,0 +1,236 @@
+"""The reference image's definition, and the Tier-A predicate. ADR-019.
+
+Everything here runs without a container runtime. The image cannot be built on every machine --
+it needs virtualization, and the host this was written on has Intel VT-x disabled in firmware --
+so the checks that need a running image live in the `container` CI job, and the checks that are
+really about the *definition* live here where they always run.
+
+That split matters: a test suite that skipped all of ADR-019 whenever Docker was missing would go
+green on a machine that could not have caught a single one of these mistakes.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[2]
+LIB = "/usr/lib/x86_64-linux-gnu"
+CONTAINER = REPO / "container"
+DOCKERFILE = CONTAINER / "Dockerfile"
+DIGESTS = CONTAINER / "digests.json"
+
+
+def test_the_container_directory_has_what_the_record_names():
+    """ADR-019 decision 1 lists the four files by name."""
+    for name in ("Dockerfile", "packages.txt", "build.sh", "digests.json"):
+        assert (CONTAINER / name).exists(), f"container/{name} is missing (ADR-019 decision 1)"
+
+
+def test_the_base_image_is_pinned_by_digest_and_never_by_tag():
+    """ADR-019 decision 1: "a `FROM` line without an `@sha256:` prefix fails the build job".
+
+    A tag is a moving reference, so an image built from one is not an artifact anyone can obtain
+    again -- which makes every Tier-A claim resting on it unfalsifiable rather than merely weak.
+    """
+    lines = [ln for ln in DOCKERFILE.read_text(encoding="utf-8").splitlines()
+             if ln.strip().upper().startswith("FROM")]
+    assert lines, "no FROM line"
+    for line in lines:
+        assert re.match(r"^FROM\s+\S+@sha256:[0-9a-f]{64}\s*$", line.strip()), line
+
+
+def test_the_pinned_digest_is_the_one_recorded_in_digests_json():
+    """The Dockerfile and the manifest have to agree, or the record describes a different image
+    from the one that would be built."""
+    doc = json.loads(DIGESTS.read_text(encoding="utf-8"))
+    recorded = doc["base_image"]["index_digest"]
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", recorded)
+    assert recorded in DOCKERFILE.read_text(encoding="utf-8")
+
+
+def test_the_interpreter_is_not_the_base_images():
+    """ADR-019 decision 1: uv installs and pins the interpreter, "so 'Python 3.12' is one artifact
+    identity shared by the Windows development machine and the container rather than an ambient
+    property of each".
+
+    Asserted by `python3` being absent from packages.txt: installing Debian's interpreter is
+    exactly how that identity would become ambient again.
+    """
+    packages = [ln.strip() for ln in (CONTAINER / "packages.txt").read_text(encoding="utf-8")
+                .splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    assert packages, "packages.txt lists nothing"
+    for forbidden in ("python3", "python3-minimal", "python3.11", "python3-numpy"):
+        assert forbidden not in packages, (
+            f"{forbidden!r} in packages.txt would make the interpreter an ambient property of the "
+            f"base image, which ADR-019 decision 1 exists to prevent"
+        )
+    assert "uv" in DOCKERFILE.read_text(encoding="utf-8")
+
+
+def test_the_isa_and_thread_pins_agree_between_the_image_and_the_code():
+    """A drift hazard with no other guard.
+
+    The Dockerfile sets these variables and `farsight.engines.environment` declares what it
+    expects them to be. Nothing but this test stops the two from diverging -- and if they did, the
+    image would pin one dispatch baseline while `numeric_environment` recorded a different
+    expectation, so the predicate would describe an environment nobody was running in.
+    """
+    from farsight.engines.environment import ISA_ENV, THREAD_ENV
+
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    for key, value in {**ISA_ENV, **THREAD_ENV}.items():
+        # ENV lines may quote the value or not; both spellings must carry the same content.
+        pattern = rf"{re.escape(key)}=\"?{re.escape(value)}\"?"
+        assert re.search(pattern, text), (
+            f"the image does not set {key}={value!r}, but engines/environment.py declares it. "
+            f"A pin the code expects and the image does not apply is a predicate describing an "
+            f"environment nobody ran in"
+        )
+
+
+def test_pythonhashseed_is_set_in_the_image_and_not_from_python():
+    """CPython reads PYTHONHASHSEED only at interpreter startup, so setting it inside a running
+    process is a no-op that a readback test would not notice. The image is the right place, and
+    this asserts it is there."""
+    assert re.search(r"PYTHONHASHSEED=0", DOCKERFILE.read_text(encoding="utf-8"))
+
+
+def test_unmeasured_fields_are_null_rather_than_plausible():
+    """The honest-null rule, mechanized.
+
+    ADR-019 makes `numeric_environment_hash` a MEASURED value: "a predicate we cannot measure is a
+    predicate we cannot enforce". No image has been built here, so a 64-hex string in this file
+    would be a fabrication that every later Tier-A comparison would inherit. This test fails if
+    anyone fills these in without the build that produces them.
+    """
+    doc = json.loads(DIGESTS.read_text(encoding="utf-8"))
+    status = doc["measurement_status"]["state"]
+
+    if status == "unmeasured":
+        assert doc["numeric_environment_hash"] is None
+        assert doc["build_manifest_hash"] is None
+        assert doc["accepted_image_digests"] == []
+        assert doc["apt"]["resolved_versions"] is None
+        assert doc["measurement_status"]["reason"]
+        assert doc["measurement_status"]["blocked_on"]
+    else:
+        assert status == "measured", status
+        assert re.fullmatch(r"[0-9a-f]{64}", doc["numeric_environment_hash"] or "")
+        assert doc["accepted_image_digests"], "a measured environment has at least one image"
+        assert doc["apt"]["resolved_versions"], "a measured build records what apt resolved"
+
+
+def test_build_sh_refuses_an_unpinned_base():
+    """The check has to live in the build, not only in this suite: CI builds the image by running
+    `build.sh`, and a guard that exists only in pytest would not stop a hand build."""
+    script = (CONTAINER / "build.sh").read_text(encoding="utf-8")
+    assert "@sha256:" in script and "REFUSED" in script
+
+
+# ------------------------------------------------------------------------------------------
+# The Tier-A predicate itself.
+# ------------------------------------------------------------------------------------------
+
+
+def test_a_tier_a_predicate_is_refused_off_linux():
+    """ADR-006: "We can never claim bitwise reproducibility across operating systems, so a
+    Windows-only customer is permanently a Tier-B customer and must be told so."
+
+    So the module refuses rather than emitting a weaker document shaped like the real one. A
+    fingerprint that silently means less on one platform is worse than none, because it would be
+    compared against a real one and appear to agree.
+    """
+    import sys
+
+    from farsight.engines.environment import EnvironmentUnavailable, mapped_libraries
+
+    if sys.platform.startswith("linux"):
+        libraries = mapped_libraries()
+        assert libraries, "a running Linux process maps at least libc"
+        assert all(set(entry) == {"soname", "path", "sha256", "size_bytes"} for entry in libraries)
+        assert [e["path"] for e in libraries] == sorted(e["path"] for e in libraries), (
+            "mapped_libraries must be sorted, or the same environment hashes differently between "
+            "runs depending on loader order"
+        )
+    else:
+        with pytest.raises(EnvironmentUnavailable, match="permanently Tier B"):
+            mapped_libraries()
+
+
+def test_the_residue_about_libm_is_stated_rather_than_implied():
+    """ADR-019 argues ISA normalization entirely in OpenBLAS and NumPy terms, and SPICE geometry
+    goes through neither -- it is CSPICE arithmetic over glibc's libm. The gap is real, it is not
+    closed by anything in this repository, and it is recorded where someone reading the pins will
+    see it."""
+    from farsight.engines.environment import ISA_RESIDUE
+
+    assert "PARTIALLY MECHANIZED" in ISA_RESIDUE
+    assert "libm" in ISA_RESIDUE and "GLIBC_TUNABLES" in ISA_RESIDUE
+    # And the Dockerfile names the lever it deliberately does not pull.
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    assert "GLIBC_TUNABLES" in text
+    assert not re.search(r"^\s*ENV\s+GLIBC_TUNABLES", text, re.MULTILINE), (
+        "GLIBC_TUNABLES is set in the image without the two-CPU measurement that would justify it"
+    )
+
+
+def test_maps_parsing_and_ordering_are_testable_off_linux():
+    """The guard that a mutation walked straight through.
+
+    `mapped_libraries` can only run on Linux, so every assertion about how it parses and orders
+    sat inside a platform branch that never executed on the machine this was written on -- and a
+    mutation deleting the sort survived. Extracting the pure part is what makes the property
+    checkable where the code is actually developed.
+    """
+    from farsight.engines.environment import parse_maps
+
+    sample = "\n".join([
+        f"7f0a00000000-7f0a00021000 r--p 00000000 08:01 1310721   {LIB}/libz.so.1",
+        f"7f0a00021000-7f0a00030000 r-xp 00021000 08:01 1310721   {LIB}/libz.so.1",
+        f"7f0b00000000-7f0b00100000 r-xp 00000000 08:01 1310700   {LIB}/libc.so.6",
+        f"7f0c00000000-7f0c00050000 r-xp 00000000 08:01 1310800   {LIB}/libm.so.6",
+        "7ffd00000000-7ffd00021000 rw-p 00000000 00:00 0         [stack]",
+        "7f0d00000000-7f0d00010000 rw-p 00000000 00:00 0 ",
+        "7f0e00000000-7f0e00010000 r--p 00000000 08:01 1311000   /farsight/README.md",
+        # A PATH-BEARING mapping with inode 0. Real maps files carry these -- /dev/zero
+        # mappings and deleted SysV segments among them -- and they have no file behind them
+        # to hash. Included because without it the inode check is never reached: the regex is
+        # anchored on a leading "/", so a pathless anonymous line is rejected before the check
+        # runs, and a mutation deleting the check survived on a sample that had only those.
+        "7f0f00000000-7f0f00010000 rw-s 00000000 00:00 0         /dev/zero.so (deleted)",
+    ])
+    paths = parse_maps(sample)
+
+    # Sorted -- loader order is a property of the run, not of the environment, and this list goes
+    # into a hashed document.
+    assert paths == sorted(paths)
+    assert paths == [f"{LIB}/libc.so.6", f"{LIB}/libm.so.6", f"{LIB}/libz.so.1"]
+    # Deduplicated: one file mapped twice is one library.
+    assert len(paths) == len(set(paths))
+    # Anonymous mappings (inode 0) have no file to hash, and non-libraries are not libraries.
+    assert not any("stack" in p or p.endswith(".md") for p in paths)
+
+
+def test_the_engine_fingerprint_is_asked_of_the_adapter():
+    """`geometry_is_not_an_engine` makes spiceypy importable only under `farsight.engines.spice`,
+    so the environment probe must ask the adapter rather than import the toolkit itself. Asserted
+    because the alternative -- widening the contract -- would have been the easy fix and the wrong
+    one."""
+    import ast
+
+    source = (REPO / "src" / "farsight" / "engines" / "environment.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+    assert "spiceypy" not in imported, (
+        "environment.py imports spiceypy directly; ask farsight.engines.spice.build instead"
+    )
+    assert (REPO / "src" / "farsight" / "engines" / "spice" / "build.py").exists()
