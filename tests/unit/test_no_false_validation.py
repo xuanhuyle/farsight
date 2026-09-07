@@ -141,15 +141,27 @@ def test_exception_hierarchy_closed():
     ``failure_class`` (ADR-023 decision 8), and a closed mapping over the standard library's
     open set is not writable. An exception outside the hierarchy is a site nobody classified.
 
-    The other two legs -- that no ``FreezeTimeError`` is raised under ``engines/``, and that the
-    worker returns a ``RunOutcome`` for every injected error -- need the worker, and are not
-    silently skipped: they are named here so the gap is visible when this test passes.
+    The remaining leg -- that the worker returns a ``RunOutcome`` for every injected error --
+    needs the worker, and is not silently skipped: it is named here so the gap stays visible
+    while this test passes. The ``engines/`` half is checked by the test below.
     """
     import ast
 
     src = REPO / "src" / "farsight"
-    known = {"FarSightError"}
-    offenders: list[str] = []
+
+    # Collected first, then resolved. The first version of this walked files in sorted order and
+    # grew the known set as it went, so a subclass defined in a file sorting BEFORE the one
+    # defining its base was reported as an offender -- `engines/spice` before `schemas/errors`.
+    # A lint whose verdict depends on filename order is worse than no lint: it fails for the
+    # wrong reason and teaches the reader to distrust it.
+    # EVERY class is collected, not only the ones that look like exceptions, because
+    # membership in the hierarchy has to be resolved through classes the *reporting* rule
+    # ignores. `UnhonorableSpec` is exactly that: ADR-023 names it without an `Error` suffix
+    # and derives it from `WorkerError`, so the earlier version of this collector never saw
+    # it -- and then reported its subclass `EpochCoverageError` as orphaned, when the real
+    # defect was the lint's own blind spot. Detection and reporting are now separate: the
+    # graph is complete, and only the exception-shaped nodes can be offenders.
+    classes: dict[str, tuple[str, int, set[str]]] = {}
     for path in sorted(src.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -157,23 +169,100 @@ def test_exception_hierarchy_closed():
                 continue
             base_names = {b.id for b in node.bases if isinstance(b, ast.Name)}
             base_names |= {b.attr for b in node.bases if isinstance(b, ast.Attribute)}
-            looks_like_exception = (
-                node.name.endswith("Error")
-                or bool(base_names & {"Exception", "BaseException", "ValueError", "RuntimeError"})
-            )
-            if not looks_like_exception:
-                continue
-            if node.name == "FarSightError":
-                continue
-            if not (base_names & known):
-                offenders.append(
-                    f"{path.relative_to(REPO).as_posix()}:{node.lineno}: {node.name}"
-                    f"({', '.join(sorted(base_names)) or 'object'})"
-                )
-            else:
-                known.add(node.name)
+            classes[node.name] = (path.relative_to(REPO).as_posix(), node.lineno, base_names)
+
+    BUILTIN_EXC = {"Exception", "BaseException", "ValueError", "RuntimeError", "OSError",
+                   "TypeError", "KeyError", "LookupError"}
+    found = {
+        name: entry
+        for name, entry in classes.items()
+        if name.endswith("Error") or bool(entry[2] & BUILTIN_EXC)
+    }
+
+    known = {"FarSightError"}
+    changed = True
+    while changed:
+        changed = False
+        for name, (_path, _line, bases) in classes.items():
+            if name not in known and (bases & known):
+                known.add(name)
+                changed = True
+
+    offenders = [
+        f"{path}:{line}: {name}({', '.join(sorted(bases)) or 'object'})"
+        for name, (path, line, bases) in sorted(found.items())
+        if name != "FarSightError" and name not in known
+    ]
     assert not offenders, (
         "exceptions outside the FarSightError hierarchy (ADR-023 decision 8); each is a site "
         "the worker's exception-to-failure_class mapping cannot classify:\n  "
         + "\n  ".join(offenders)
+    )
+
+
+def test_no_freeze_time_error_under_engines():
+    """ADR-023 Enforcement item 6, second leg.
+
+    No ``FreezeTimeError`` subclass may be raised or imported anywhere under
+    ``src/farsight/engines/``. The reason is mechanical rather than stylistic: an engine runs
+    inside a worker process, and ADR-002 lets nothing but bytes cross that boundary -- so an
+    exception raised there never reaches the parent as itself, only as whatever the worker
+    protocol encodes. A freeze-time exception raised inside a worker is therefore a claim that
+    cannot be honoured by the place it is made.
+
+    It is also a claim in the wrong tense. Freeze-time means "this design should never have been
+    built". Reaching a worker at all means it *was* built and dispatched, so the honest report is
+    ADR-023's: a worker-side refusal that a freeze validator should have caught is evidence about
+    the validator, and the type system should say worker, not freeze.
+
+    This got past review once already. Both `UnhonorableSpec` and the coverage error were
+    written as `FreezeTimeError` subclasses under `engines/spice/`, and nothing objected.
+    """
+    import ast
+
+    src = REPO / "src" / "farsight"
+    errors_mod = src / "schemas" / "errors.py"
+
+    # The freeze-time branch, resolved transitively from the module that defines it.
+    freeze: set[str] = {"FreezeTimeError"}
+    tree = ast.parse(errors_mod.read_text(encoding="utf-8"))
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name not in freeze:
+                bases = {b.id for b in node.bases if isinstance(b, ast.Name)}
+                if bases & freeze:
+                    freeze.add(node.name)
+                    changed = True
+    assert len(freeze) > 1, (
+        "no FreezeTimeError subclasses were found, so this test would pass vacuously"
+    )
+
+    violations: list[str] = []
+    for path in sorted((src / "engines").rglob("*.py")):
+        rel = path.relative_to(REPO).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name in freeze:
+                        violations.append(f"{rel}:{node.lineno}: imports {alias.name}")
+            elif isinstance(node, ast.Raise) and node.exc is not None:
+                call = node.exc
+                target = call.func if isinstance(call, ast.Call) else call
+                name = getattr(target, "id", None) or getattr(target, "attr", None)
+                if name in freeze:
+                    violations.append(f"{rel}:{node.lineno}: raises {name}")
+            elif isinstance(node, ast.ClassDef):
+                bases = {b.id for b in node.bases if isinstance(b, ast.Name)}
+                if bases & freeze:
+                    violations.append(
+                        f"{rel}:{node.lineno}: {node.name} subclasses a freeze-time error"
+                    )
+    assert not violations, (
+        "freeze-time exceptions under engines/ (ADR-023 Enforcement 6). An engine runs inside a "
+        "worker; use a WorkerError subclass such as UnhonorableSpec, and put the freeze-time "
+        "refusal in the parent-side validator that should have caught it:\n  "
+        + "\n  ".join(violations)
     )

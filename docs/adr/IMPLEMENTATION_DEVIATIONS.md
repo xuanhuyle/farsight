@@ -788,3 +788,39 @@ and is deliberately **not** made piecemeal here.
 which supersedes this clause of ADR-004 and states what an empty envelope asserts.
 
 **Status:** internally cross-checked. Not externally expert-reviewed.
+
+## DEV-17 — the coverage check exists, but at run time, and the freeze validator does not
+
+**Record:** [ADR-016](ADR-016-kernel-sets.md) — `kernel_coverage_completeness` is specified as a
+**freeze** validator; [ADR-023](ADR-023-run-outcomes.md) Enforcement 6 — no `FreezeTimeError`
+subclass may be raised or imported under `src/farsight/engines/`
+**Code:** `src/farsight/engines/spice/time.py`; `src/farsight/schemas/errors.py`
+
+**What differs.** The record places the coverage refusal at freeze. The code places it in the
+worker: `check_epoch_covered` raises `EpochCoverageError`, which is an `UnhonorableSpec` and
+therefore a `WorkerError`. The freeze-time half is a type with no raising site —
+`KernelCoverageError` is defined in `schemas/errors.py` and nothing raises it, because the freeze
+validator that would is not built.
+
+**Why.** The two are not substitutes, and building the run-time half first was the smaller
+mistake. A run-time refusal fires after the design was frozen and dispatched, so it catches the
+epoch but not the design that permitted it — and by ADR-023 that is exactly what a worker-side
+refusal means: evidence that a freeze-time completeness check has a hole. The freeze validator
+needs the SPK and PCK coverage windows, which are stage-4 kernels that are not downloaded, so
+writing it now would mean writing a validator that cannot be tested against a real coverage
+window. What could be built honestly today is the leapsecond half, and it is built.
+
+The typing was also wrong in the first draft and is worth recording as such: both
+`UnhonorableSpec` and the coverage error were written as `FreezeTimeError` subclasses under
+`engines/`, in direct violation of ADR-023 Enforcement 6, and the lint that should have caught it
+had a blind spot — it only collected classes whose names end in `Error`, so `UnhonorableSpec`
+was invisible and its subclass was reported as orphaned instead. Both are fixed, and
+`test_no_freeze_time_error_under_engines` now checks the enforcement leg directly.
+
+**Closes by:** ADR-016's `kernel_coverage_completeness` implemented as a freeze validator over
+the full SPK/PCK/LSK window set, raising `KernelCoverageError`, once stage-4 kernels exist to
+test it against. At that point `EpochCoverageError` becomes a defence-in-depth check that should
+be unreachable in a frozen design rather than the only check.
+
+**Status:** Open. The run-time half is enforced and mutation-checked; the freeze half is absent
+and is not claimed anywhere in the code or docs to exist.

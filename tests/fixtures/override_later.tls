@@ -1,0 +1,33 @@
+KPL/LSK
+
+AUTHORED BY FARSIGHT. THIS IS NOT A NAIF PRODUCT.
+
+The second half of ADR-016's `ci-kernel-override-canary`. Furnished AFTER
+`farsight_authored.tls`, it overrides that kernel's leap-second table with a deliberately
+different one, so that the two furnish orders produce **different geometry** rather than merely
+different hashes.
+
+That distinction is the whole point of the canary. Two orderings of the same files always produce
+different `kernel_set_hash` values -- JCS preserves array order, so that is guaranteed by the
+serialization and proves nothing about SPICE. The assertion worth making is that the ORDER
+CHANGES THE ANSWER, which is what makes ADR-016's ordered-sequence identity earned rather than
+assumed. If this file's values ever stopped differing from the other fixture's, the canary would
+pass while testing nothing.
+
+The table below is fictional: 40 leap seconds from 2015, not 36. No real epoch has this offset.
+It is chosen to be obviously wrong so that a value computed under it can never be mistaken for a
+physical result if it leaks into an output.
+
+\begindata
+
+DELTET/DELTA_T_A       =   32.184
+DELTET/K               =    1.657D-3
+DELTET/EB              =    1.671D-2
+DELTET/M               = (  6.239996D0   1.99096871D-7 )
+
+DELTET/DELTA_AT        = ( 40,   @2015-JUL-1
+                           41,   @2017-JAN-1 )
+
+\begintext
+
+End of the FarSight-authored override fixture.

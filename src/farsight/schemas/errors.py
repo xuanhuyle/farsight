@@ -38,6 +38,9 @@ __all__ = [
     "FarSightError",
     "FreezeTimeError",
     "SpecCompositionError",
+    "KernelCoverageError",
+    "WorkerError",
+    "UnhonorableSpec",
 ]
 
 
@@ -65,4 +68,36 @@ class SpecCompositionError(FreezeTimeError):
     """A run whose stages do not compose (ADR-018): stage, binding, grid or capability.
 
     Every one of ADR-018's six composition rules raises this, naming the stage id.
+    """
+
+
+class KernelCoverageError(FreezeTimeError):
+    """An epoch falls outside what the declared kernels cover (ADR-016).
+
+    Freeze-time because ADR-016 specifies ``kernel_coverage_completeness`` as a freeze validator,
+    and the reason is measurable: SPICE does not refuse an epoch before its leapsecond table --
+    it extrapolates and returns a plausible number, wrong by 16 seconds for a 1980 epoch against
+    a table starting in 2015. At run time there is nothing left to catch, because the wrong
+    answer is indistinguishable from the right one.
+    """
+
+
+class WorkerError(FarSightError):
+    """Raised inside the worker process.
+
+    The distinction from a freeze-time error is not cosmetic, and ADR-023 draws a consequence
+    from it: a failure that *should* have been caught at freeze but surfaced inside a worker is
+    itself a report that the freeze-time completeness check has a hole. So a worker error is
+    recorded as a run outcome AND read as evidence about the validator that let the spec through.
+    """
+
+
+class UnhonorableSpec(WorkerError):
+    """A provider cannot honour the spec it was handed (ADR-003 ``initialize``).
+
+    A ``WorkerError`` rather than a ``FreezeTimeError``, which ADR-023 fixes and which matters
+    mechanically: its Enforcement item 6 forbids any ``FreezeTimeError`` subclass from being
+    raised or imported under ``src/farsight/engines/``. An engine runs inside a worker, and
+    nothing but bytes crosses the pool boundary, so a freeze-time exception raised there is a
+    category error that could never reach the parent as itself.
     """
