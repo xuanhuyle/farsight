@@ -509,3 +509,69 @@ def test_a_predicate_mismatch_is_diffed_against_the_recorded_document():
         "the mismatch branch does not diff against the recorded document, so it cannot say what "
         "changed -- diffing this run's two builds shows nothing, they agree by construction"
     )
+
+
+def test_the_in_image_gate_does_not_depend_on_container_stdin():
+    """The gate must not be piped into `python -`, because for five green runs it was.
+
+    `podman run` without `-i` leaves the container's stdin closed. `python -` therefore read an
+    empty program, printed nothing, and exited 0 -- and the step that carries the weeks 1-2 exit
+    gate ("bitwise-reproducible in container") reported success while executing no assertion at
+    all. Nothing was wrong with the geometry; the claim was simply never tested.
+
+    A step whose evidence is that it emitted no error is not evidence. This asserts the shape of
+    the fix -- a script the image already contains -- rather than the shape of the bug, because
+    `-i` would also work and would leave the same trap one refactor away.
+    """
+    import yaml
+
+    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"))
+    step = next(s for s in workflow["jobs"]["container"]["steps"]
+                if "gate" in (s.get("name") or ""))
+    run = step["run"]
+
+    assert "container/gate_in_image.py" in run, (
+        "the in-image gate is not invoked as a file in the image; if it is piped on stdin it can "
+        "silently execute nothing, which is what it did"
+    )
+    assert not re.search(r"python\s+-\s*$", run, re.MULTILINE) and "python - <<" not in run, (
+        "the gate is fed to `python -`, which reads the container's stdin -- closed unless the "
+        "runtime is given -i, and a closed stdin is an empty program that exits 0"
+    )
+    assert (CONTAINER / "gate_in_image.py").exists(), (
+        "the workflow runs container/gate_in_image.py and the repository does not contain it"
+    )
+
+
+def test_the_gate_step_fails_when_it_produces_no_evidence():
+    """The control that would have caught the silent no-op, asserted so it cannot be dropped.
+
+    The bug was invisible because success and doing-nothing looked identical. Requiring the step
+    to produce a file, and to fail when it does not, makes them different. This is the general
+    form of the lesson and not a patch for one runtime's stdin behaviour.
+    """
+    import yaml
+
+    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"))
+    step = next(s for s in workflow["jobs"]["container"]["steps"]
+                if "gate" in (s.get("name") or ""))
+    run = step["run"]
+
+    assert not step.get("continue-on-error") and "if" not in step, (
+        "the gate step is disabled or its result ignored"
+    )
+    evidence = re.search(r"test -s (\S+)", run)
+    assert evidence, (
+        "nothing checks that the gate produced its evidence file, so a step that runs no code "
+        "passes exactly as loudly as one that runs the gate"
+    )
+    out = evidence.group(1)
+    assert "exit 1" in run[evidence.end():evidence.end() + 200], (
+        f"a missing {out} does not fail the job"
+    )
+    assert out in workflow["jobs"]["container"]["steps"][-1]["with"]["path"], (
+        f"{out} is the gate's evidence and is not uploaded, so a disagreement between two runners "
+        "-- the DEV-23 question -- cannot be settled after the fact"
+    )

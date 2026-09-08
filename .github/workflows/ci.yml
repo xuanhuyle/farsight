@@ -29,7 +29,7 @@ jobs:
         # defaults to. Without both pins the build would start failing on ruff's release
         # schedule -- the same shape as ADR-006's warning about base-image updates forcing a
         # re-golding cycle on someone else's schedule.
-        run: ruff check src tests
+        run: ruff check src tests container
       - name: console script resolves
         # ADR-024: command names and exit codes are printed into shipped evidence packages, so
         # the entry point is part of the contract. `pyproject.toml` declared
@@ -128,6 +128,33 @@ jobs:
           FARSIGHT_IMAGE: farsight-reference
           FARSIGHT_TAG: ci
 
+      # ORDER MATTERS HERE. The gate runs BEFORE the predicate is enforced, so that a run on
+      # an unexpected machine still measures the NUMBERS. When the runner's CPU generation
+      # changed under us, enforcement aborted the job first and the one question worth
+      # answering -- whether the geometry moved with the silicon (DEV-23) -- went unmeasured.
+      # The CPU class itself needs no extra step: fingerprint.json records
+      # isa_enabled_features and is uploaded on always().
+      - name: the gate, twice, inside the image
+        # THE EXIT GATE'S OWN WORDING. Two runs of one frozen design in the container must produce
+        # identical channel hashes. The synthetic-SPK design is used because it needs no download;
+        # the real-Psyche leg needs 46 MiB of kernels this job does not fetch.
+        #
+        # The script is a FILE ALREADY INSIDE THE IMAGE, not a heredoc on stdin. As a heredoc it
+        # silently did nothing for five consecutive green runs: `podman run` without `-i` closes
+        # the container's stdin, so `python -` read an empty program and exited 0. The step
+        # reported the weeks 1-2 gate as met while executing no assertion whatsoever.
+        #
+        # `test -s` below is the control that would have caught it, and is the more important
+        # half of this fix: a step that produces no evidence now FAILS. A green check with no
+        # output is the failure mode a build pipeline is worst at showing you.
+        run: |
+          # podman does not create a bind-mount source directory; docker does. Creating it here
+          # rather than relying on the runtime is one less thing that differs between builders.
+          mkdir -p out
+          $FARSIGHT_BUILDER run --rm -v "$PWD/out:/out" farsight-reference:ci python container/gate_in_image.py
+          test -s out/gate.json || { echo "the gate wrote no evidence -- it did not run"; exit 1; }
+          cat out/gate.json
+
       - name: is the predicate STABLE across two independent builds?
         # THE QUESTION THAT DECIDES WHETHER THE PREDICATE CAN BE PINNED AT ALL.
         #
@@ -188,36 +215,6 @@ jobs:
             exit 1
           fi
 
-      - name: the gate, twice, inside the image
-        # THE EXIT GATE'S OWN WORDING. Two runs of one frozen design in the container must produce
-        # identical channel hashes. The synthetic-SPK design is used because it needs no download;
-        # the real-Psyche leg needs 46 MiB of kernels this job does not fetch.
-        run: |
-          # podman does not create a bind-mount source directory; docker does. Creating it here
-          # rather than relying on the runtime is one less thing that differs between builders.
-          mkdir -p out
-          $FARSIGHT_BUILDER run --rm -v "$PWD/out:/out" farsight-reference:ci python - <<'EOF'
-          import json, sys, tempfile
-          from pathlib import Path
-          sys.path[:0] = ["tests", "tests/unit"]
-          from test_geometry_gate import _bundle_dict, _populate_cache
-          home = Path(tempfile.mkdtemp())
-          lsk, spk, ls, ss = _populate_cache(home)
-          design = Path(tempfile.mkdtemp()) / "run.json"
-          design.write_text(json.dumps(_bundle_dict(lsk, spk, ls, ss), indent=2))
-          from farsight.cli.run_geometry import run_geometry
-          a = run_geometry(design_path=design, out_dir=Path(tempfile.mkdtemp()), home=home,
-                           ts_utc="2026-09-07T12:00:00+00:00")
-          b = run_geometry(design_path=design, out_dir=Path(tempfile.mkdtemp()), home=home,
-                           ts_utc="2026-09-07T12:00:00+00:00")
-          assert a["channels"] == b["channels"], "NOT bitwise reproducible in the container"
-          assert a["spec_hash"] == b["spec_hash"]
-          Path("/out/channels.json").write_text(json.dumps(a["channels"], indent=2))
-          print("bitwise reproducible in container:")
-          for line in a["channels"]:
-              print("  ", line)
-          EOF
-
       - name: the full suite inside the image
         run: $FARSIGHT_BUILDER run --rm farsight-reference:ci python -m pytest tests/unit -q
 
@@ -231,4 +228,4 @@ jobs:
             fingerprint.json
             fingerprint2.json
             apt_versions.txt
-            out/channels.json
+            out/gate.json

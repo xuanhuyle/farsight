@@ -1019,6 +1019,33 @@ tolerances out, a dropped stellar-aberration term 18. Chosen tighter than a re-s
 would move things, so changing a pinned kernel fails this check by design rather than silently
 re-goldening.
 
+**Update 2026-09-08 (fourth) -- the container job was not running the gate at all.**
+
+The sentence three paragraphs up -- "The `container` CI job builds the image, runs the gate inside
+it twice and compares channel hashes" -- was false for five consecutive green runs. The step piped
+its script into `python -` through a heredoc, and `podman run` without `-i` leaves the container's
+stdin closed. `python -` therefore read an empty program, printed nothing, and exited 0. Every
+assertion in it, including the channel-hash comparison the exit gate is named for, went
+unexecuted.
+
+Nothing detected it because a step that does nothing and a step that succeeds are the same shape
+in a build log: no error, green check. The only tell was an absence -- the line "bitwise
+reproducible in container:" never appeared in any run's output, only in the echoed script. It
+surfaced sideways, while downloading an old artifact to answer DEV-23's cross-CPU question, and
+finding three files in it where the workflow listed four.
+
+Fixed by making the gate a file the image already contains, `container/gate_in_image.py`, which has
+no stdin to forget. The more important half of the fix is the second one: the step now requires an
+evidence file and FAILS when it is absent, so doing nothing and succeeding stop looking alike.
+`test_the_in_image_gate_does_not_depend_on_container_stdin` and
+`test_the_gate_step_fails_when_it_produces_no_evidence` hold both, and three mutations -- restore
+the pipe, delete the evidence check, drop the artifact upload -- each fail the suite.
+
+**What this does not change.** The container leg of the gate is still not met. It is now known to
+have been *unmeasured* rather than merely unclaimed, which is a worse state to have been in and a
+better one to know about: no result here was wrong, because there were no results. The gate's
+container wording stays open until a run produces the evidence file this update introduces.
+
 **Status:** Open, narrowed twice. Psyche, pass geometry, the geometry cross-check and its tolerance
 are met; the container leg and a solution-independent referent remain.
 
