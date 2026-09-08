@@ -575,3 +575,80 @@ def test_the_gate_step_fails_when_it_produces_no_evidence():
         f"{out} is the gate's evidence and is not uploaded, so a disagreement between two runners "
         "-- the DEV-23 question -- cannot be settled after the fact"
     )
+
+
+def _gate_module():
+    """Load `container/gate_in_image.py`, which is a script and not an installed module."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("gate_in_image", CONTAINER / "gate_in_image.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_isa_pin_names_are_dispatch_targets_and_not_features():
+    """The pin's names must be the kind NumPy accepts, which the previous six were not.
+
+    NumPy dispatches on psABI GROUP targets and rejects individual feature names -- through an
+    `ImportWarning` CPython hides, so the rejection was invisible for as long as it stood. This
+    cannot check membership in `__cpu_dispatch__`, because that set is a property of the WHEEL and
+    differs between this machine and the image; the in-image gate checks the effect instead. What
+    it can check is that nobody puts a bare feature name back.
+    """
+    from farsight.engines.environment import ISA_ENV, TIER_A_ISA_BASELINE
+
+    names = ISA_ENV["NPY_DISABLE_CPU_FEATURES"].split()
+    assert names, "the ISA pin is empty"
+    for name in names:
+        assert re.fullmatch(r"X86_V[4-9]|AVX512_[A-Z]{3}", name), (
+            f"{name!r} is not a psABI dispatch-target name. NumPy rejects individual feature "
+            f"names such as AVX512F, and says so only through a warning Python hides by default"
+        )
+    assert "X86_V3" not in names, (
+        f"X86_V3 is the declared {TIER_A_ISA_BASELINE} baseline; disabling it does not normalize "
+        "dispatch, it drops every run below the baseline the predicate claims"
+    )
+
+
+def test_the_gate_refuses_an_isa_pin_that_did_not_take_effect():
+    """Each way the pin can fail to hold must FAIL the gate, not be recorded and passed over.
+
+    A pin nothing checks is a comment, and this project has now had two silent no-ops in one day.
+    The third case is the important one: NumPy accepts an unrecognised name without complaint, so
+    a typo cannot be caught by looking for a warning -- only by measuring what was selected.
+    """
+    gate = _gate_module()
+    good = {
+        "declared_baseline": "x86-64-v3",
+        "numpy_rejected_the_pin": False,
+        "numpy_says": "",
+        "requested": "X86_V4 AVX512_ICL AVX512_SPR",
+        "selected": ["X86_V3", "baseline(X86_V2)"],
+        "targets": {},
+    }
+    gate.check_isa_pin(good)  # must not raise
+
+    rejected = {**good, "numpy_rejected_the_pin": True, "numpy_says": "You cannot disable ..."}
+    with pytest.raises(SystemExit, match="REJECTED"):
+        gate.check_isa_pin(rejected)
+
+    unmeasurable = {**good, "selected": []}
+    with pytest.raises(SystemExit, match="could not be measured"):
+        gate.check_isa_pin(unmeasurable)
+
+    # The silent-typo case: no warning, no complaint, and AVX-512 kernels still selected.
+    ineffective = {**good, "requested": "AVX512F", "selected": ["X86_V4"]}
+    with pytest.raises(SystemExit, match="NO EFFECT"):
+        gate.check_isa_pin(ineffective)
+
+
+def test_the_gate_checks_the_pin_before_it_blesses_the_numbers():
+    """Order matters: a refusal after the channels are written is a report, not a gate."""
+    source = (CONTAINER / "gate_in_image.py").read_text(encoding="utf-8")
+    body = source[source.index("def main("):]
+    assert body.index("check_isa_pin(pin)") < body.index("run_geometry("), (
+        "the ISA pin is checked after the geometry has already run, so a run in an unpinned "
+        "environment still produces channel hashes that look like Tier-A evidence"
+    )

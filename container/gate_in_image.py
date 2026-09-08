@@ -54,12 +54,54 @@ def isa_pin_measurement() -> dict[str, object]:
         check=False,
     )
     rejected = "NPY_DISABLE_CPU_FEATURES" in probe.stderr
+    from farsight.engines.environment import TIER_A_ISA_BASELINE, _dispatch_selected
+
     return {
+        "declared_baseline": TIER_A_ISA_BASELINE,
         "numpy_rejected_the_pin": rejected,
         "numpy_says": probe.stderr.strip()[-500:] if rejected else "",
         "requested": os.environ.get("NPY_DISABLE_CPU_FEATURES", ""),
+        # What NumPy SELECTED, which is the only thing that proves the pin did anything: a name
+        # NumPy does not recognise is accepted in silence and changes nothing.
+        "selected": _dispatch_selected(),
         "targets": json.loads(probe.stdout) if probe.stdout.strip() else {},
     }
+
+
+# `current` reads as "X86_V3" or "baseline(X86_V2)". Anything above the declared x86-64-v3
+# baseline means AVX-512 kernels are reachable and the pin did not hold.
+PERMITTED_SELECTIONS = ("baseline", "X86_V2", "X86_V3")
+
+
+def check_isa_pin(pin: dict[str, object]) -> None:
+    """Refuse a Tier-A gate run whose ISA pin did not take effect.
+
+    Recording it and carrying on was the tempting shape, and it is the shape that let a dead pin
+    sit in the record unnoticed. A pin nothing checks is a comment. ADR-019 decision 3 says
+    dispatch "is pinned to a declared baseline"; when it is not, this run is not the environment
+    the predicate describes and must not be reported as one.
+    """
+    if pin["numpy_rejected_the_pin"]:
+        raise SystemExit(
+            "ISA pin REJECTED by numpy, so dispatch is not pinned.\n"
+            f"  requested:  {pin['requested']}\n"
+            f"  numpy said: {' '.join(str(pin['numpy_says']).split())}"
+        )
+    if not pin["selected"]:
+        raise SystemExit(
+            "the ISA pin could not be measured at all -- no dispatch selection was reported, so "
+            "whether it took effect is unknown, which is not the same as fine"
+        )
+    above = [s for s in pin["selected"] if not s.startswith(PERMITTED_SELECTIONS)]
+    if above:
+        raise SystemExit(
+            "ISA pin took NO EFFECT: NumPy selected kernels above the declared "
+            f"{pin['declared_baseline']} baseline -- {', '.join(above)}.\n"
+            f"  requested: {pin['requested']}\n"
+            f"  dispatch targets in this build: {pin['targets']}\n"
+            "  A name NumPy does not recognise is accepted in silence and changes nothing, so "
+            "this is also what a typo in NPY_DISABLE_CPU_FEATURES looks like."
+        )
 
 
 def main() -> int:
@@ -70,6 +112,11 @@ def main() -> int:
 
     from farsight.cli.run_geometry import run_geometry
     from farsight.engines.environment import numeric_environment
+
+    # FIRST, before a single number is computed. A refusal that arrives after the channels are
+    # written is a report about evidence already produced, not a gate on producing it.
+    pin = isa_pin_measurement()
+    check_isa_pin(pin)
 
     home = Path(tempfile.mkdtemp())
     lsk, spk, lsk_size, spk_size = _populate_cache(home)
@@ -100,7 +147,7 @@ def main() -> int:
         "avx512": sorted(f for f in isa if "AVX512" in f),
         "channels": first["channels"],
         "spec_hash": first["spec_hash"],
-        "isa_pin": isa_pin_measurement(),
+        "isa_pin": pin,
         "x86_level": sorted(f for f in isa if f.startswith("X86_V")),
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -111,11 +158,8 @@ def main() -> int:
     for line in record["channels"]:
         print("  ", line)
     print("   x86 level:", ", ".join(record["x86_level"]) or "(none reported)")
-    pin = record["isa_pin"]
-    print("   isa pin  :", "REJECTED by numpy" if pin["numpy_rejected_the_pin"]
-          else "no rejection warning")
-    if pin["numpy_says"]:
-        print("  ", " ".join(pin["numpy_says"].split()))
+    print("   isa pin  : HELD --", ", ".join(pin["selected"]),
+          "at or below the declared", pin["declared_baseline"], "baseline")
     return 0
 
 

@@ -66,7 +66,19 @@ TIER_A_ISA_BASELINE = "x86-64-v3"
 # startup, so setting it in `os.environ` and reading it back yields a green test and no effect.
 ISA_ENV: dict[str, str] = {
     "OPENBLAS_CORETYPE": "Haswell",              # the x86-64-v3 coretype OpenBLAS names
-    "NPY_DISABLE_CPU_FEATURES": "AVX512F AVX512CD AVX512_SKX AVX512_CLX AVX512_CNL AVX512_ICL",
+    # NAMES MATTER HERE, and the six individual feature names this used to carry did nothing.
+    # NumPy dispatches on psABI GROUP targets, and rejects any name that is not one of them --
+    # through an ImportWarning CPython hides by default, so a dead pin and a live one were the
+    # same observation. Measured in the image on 2026-09-08: five of the six were rejected, and
+    # `X86_V4` was a dispatch target the pin could not name, so AVX-512 kernels were reachable on
+    # capable silicon. `docs/measurements/numpy-isa-pin.md` has the transcript.
+    #
+    # These three are the targets ABOVE the declared x86-64-v3 baseline in the image's NumPy
+    # build. `X86_V3` is deliberately absent: it IS the declared baseline, not something to
+    # disable. A name NumPy does not know is accepted in silence and changes nothing, so this
+    # tuple is not self-verifying -- `_dispatch_selected` is what proves it took effect, and the
+    # in-image gate refuses when it did not.
+    "NPY_DISABLE_CPU_FEATURES": "X86_V4 AVX512_ICL AVX512_SPR",
 }
 
 THREAD_ENV: dict[str, str] = {
@@ -195,6 +207,29 @@ def _isa_features() -> list[str]:
         return []
 
 
+def _dispatch_selected() -> list[str]:
+    """Which SIMD kernel NumPy ACTUALLY selects -- the one thing the ISA pin moves.
+
+    Distinct from :func:`_isa_features` in the way that matters: that reports CPU capability and
+    does not respond to `NPY_DISABLE_CPU_FEATURES` under any setting tested. This does.
+
+    Measured 2026-09-08, on `add`: pin unset selects `X86_V3`; disabling `X86_V3` drops it to
+    `baseline(X86_V2)`; disabling a name NumPy does not recognise leaves it at `X86_V3` and emits
+    NO warning. That last case is why this function exists -- the pin cannot be verified by the
+    absence of a complaint, only by a change in what got selected.
+
+    NumPy's own dispatch, and NumPy is still not what computes the geometry; see
+    :data:`ISA_RESIDUE`, which this does not weaken.
+    """
+    try:
+        import numpy as np
+
+        info = np.lib.introspect.opt_func_info(func_name="add")
+        return sorted({entry["current"] for sigs in info.values() for entry in sigs.values()})
+    except Exception:  # noqa: BLE001 - a NumPy without the introspection API is not a failure here
+        return []
+
+
 def _blas() -> dict[str, Any]:
     try:
         import numpy as np
@@ -249,6 +284,7 @@ def numeric_environment(*, with_spice: bool = True, uv_lock: Path | None = None)
     return {
         "schema_version": "numeric_environment/1",
         "isa_baseline": TIER_A_ISA_BASELINE,
+        "isa_dispatch_selected": _dispatch_selected(),
         "isa_enabled_features": _isa_features(),
         "interpreter": {
             "version": platform.python_version(),
