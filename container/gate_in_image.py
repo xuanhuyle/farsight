@@ -139,7 +139,11 @@ def main() -> int:
     if first["spec_hash"] != second["spec_hash"]:
         raise SystemExit("NOT bitwise reproducible in the container: spec_hash differs")
 
-    isa = numeric_environment().get("isa_enabled_features") or []
+    # From the PROVENANCE half now: capability is recorded, not refused on, because two
+    # runners differing only here produced identical channel hashes. Read from the
+    # unhashed half deliberately -- this line is what makes that difference visible in
+    # the evidence even though it no longer moves the predicate.
+    isa = numeric_environment()["provenance"].get("isa_enabled_features") or []
     record = {
         # Recorded BESIDE the numbers, because "did the geometry move?" is only answerable next
         # to "did the silicon?" -- DEV-23. GitHub does not guarantee a runner CPU generation, and

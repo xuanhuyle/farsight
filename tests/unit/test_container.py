@@ -652,3 +652,86 @@ def test_the_gate_checks_the_pin_before_it_blesses_the_numbers():
         "the ISA pin is checked after the geometry has already run, so a run in an unpinned "
         "environment still produces channel hashes that look like Tier-A evidence"
     )
+
+
+def test_cpu_capability_is_recorded_but_cannot_refuse():
+    """The decision of 2026-09-08, held mechanically. DEV-25.
+
+    `isa_enabled_features` is what the CPU CAN do. It was in the hashed half, so the predicate
+    refused whenever the machine changed. Measured across two GitHub runners whose documents
+    differed in that field and in nothing else -- same interpreter binary, same mapped libm and
+    CSPICE, same BLAS, same lock, same `isa_dispatch_selected` -- the geometry gate produced
+    byte-identical channel hashes. The predicate was refusing environments that agreed.
+
+    It must stay RECORDED, though. Dropping it entirely would lose the one fact that explains a
+    genuine future mismatch, and this project's failure mode is deleting the evidence that makes
+    a surprise diagnosable.
+    """
+    from farsight.engines import environment
+
+    # `mapped_libraries` refuses off Linux (ADR-006), which would make this skip on Windows --
+    # and a skipped guard is a guard that is not holding. Two mutations walked straight through
+    # it while it skipped. The SHAPE of the document does not depend on the platform, so the one
+    # Linux-only measurement is stubbed and the shape is asserted everywhere.
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(environment, "mapped_libraries", lambda: [])
+    try:
+        doc = environment.numeric_environment(with_spice=False)
+    finally:
+        monkeypatch.undo()
+    assert set(doc) == {"object", "provenance"}, (
+        "the environment document is not an ADR-001 envelope, so `object_half` cannot tell the "
+        "hashed part from the recorded part and everything in it refuses again"
+    )
+    assert "isa_enabled_features" not in doc["object"], (
+        "CPU capability is back in the hashed half; the predicate will refuse two machines that "
+        "compute identical numbers, which is what DEV-25 was opened to stop"
+    )
+    assert doc["provenance"].get("isa_enabled_features") is not None, (
+        "CPU capability is not recorded anywhere. It must not refuse, and it must not vanish -- "
+        "it is what explains a real mismatch when one finally happens"
+    )
+    assert "isa_dispatch_selected" in doc["object"], (
+        "the kernels NumPy actually selected are not in the hashed half, so nothing determining "
+        "the numbers replaced the capability list that was removed"
+    )
+
+
+def test_the_predicate_ignores_the_unhashed_half():
+    """Two documents differing only in provenance must hash equal. ADR-001 rule 4.
+
+    This is the property the whole change rests on, asserted directly rather than inferred from
+    the envelope's shape -- a document could be shaped like an envelope while the hash still ate
+    both halves.
+    """
+    from farsight.engines.environment import numeric_environment_hash
+
+    base = {
+        "object": {"schema_version": "numeric_environment/2", "isa_dispatch_selected": ["X86_V3"]},
+        "provenance": {"isa_enabled_features": ["AVX512F", "AVX512CD"]},
+    }
+    other = {"object": dict(base["object"]), "provenance": {"isa_enabled_features": []}}
+    assert numeric_environment_hash(base) == numeric_environment_hash(other), (
+        "the predicate still changes when only the provenance half changes, so moving capability "
+        "there bought nothing"
+    )
+
+    moved = {"object": {**base["object"], "isa_dispatch_selected": ["X86_V4"]}, "provenance": {}}
+    assert numeric_environment_hash(moved) != numeric_environment_hash(base), (
+        "the predicate does NOT change when the selected dispatch changes, which would make it "
+        "blind to the one ISA fact that does determine the numbers"
+    )
+
+
+def test_a_v1_document_still_hashes_to_its_recorded_value():
+    """An archived flat document must not silently become a different number.
+
+    `object_half` treats a document that is not an envelope as its own object half. Without that,
+    every predicate recorded before 2026-09-08 would re-hash differently and old evidence would
+    appear tampered with.
+    """
+    from farsight.engines.environment import numeric_environment_hash
+    from farsight.hashing.canonical import content_hash
+
+    v1 = {"schema_version": "numeric_environment/1", "isa_enabled_features": ["AVX512F"]}
+    assert numeric_environment_hash(v1) == content_hash(v1)

@@ -201,7 +201,12 @@ def _isa_features() -> list[str]:
     try:
         import numpy as np
 
-        features = getattr(np.core._multiarray_umath, "__cpu_features__", {})
+        # `np._core` since NumPy 2.0; `np.core` is a deprecated alias that warns on every
+        # access and will eventually be removed -- at which point the `except` below would turn
+        # this into an empty list rather than an error, and capability would quietly vanish from
+        # the record. Preferring the current name keeps the failure loud if it ever comes.
+        core = getattr(np, "_core", None) or np.core
+        features = getattr(core._multiarray_umath, "__cpu_features__", {})
         return sorted(name for name, enabled in features.items() if enabled)
     except Exception:  # noqa: BLE001 - a NumPy without the private attribute is not a failure here
         return []
@@ -269,10 +274,27 @@ def _engine_build_ids(*, with_spice: bool) -> list[str]:
 
 
 def numeric_environment(*, with_spice: bool = True, uv_lock: Path | None = None) -> dict[str, Any]:
-    """The ADR-019 document, measured in this process.
+    """The ADR-019 document, measured in this process, in ADR-001's two-key envelope.
 
     ``with_spice`` forces the engine import first, so CSPICE is mapped before ``mapped_libraries``
     reads the map. Passing ``False`` measures an environment that genuinely has no engine in it.
+
+    WHY THIS IS AN ENVELOPE, since v1 was a flat document. `isa_enabled_features` is what the CPU
+    can do, and the predicate was refusing on it. MEASURED 2026-09-08 across two GitHub runners
+    whose documents differed in that field and in NOTHING else -- same interpreter binary, same
+    mapped libm and CSPICE, same BLAS, same lock file, and the same `isa_dispatch_selected` -- the
+    geometry gate produced BYTE-IDENTICAL channel hashes on both. The predicate refused a pair of
+    environments that computed the same numbers.
+
+    So capability moves to the unhashed half: still recorded, because "which machine was this" is
+    worth knowing, but no longer able to refuse. What stays in the hashed half is what was
+    measured to determine the numbers, including `isa_dispatch_selected` -- the kernels NumPy
+    actually selected, which is the honest version of what capability was standing in for.
+
+    ADR-019's falsifier for the predicate runs the other way: a bitwise mismatch between two
+    environments whose predicates AGREE would mean a determining field is missing. That remains
+    the thing to watch, and narrowing the document makes it reachable rather than masked. See
+    `docs/measurements/numpy-isa-pin.md` and DEV-25.
     """
     engine_ids = _engine_build_ids(with_spice=with_spice)
     libraries = mapped_libraries()   # after the engine import, deliberately
@@ -282,20 +304,26 @@ def numeric_environment(*, with_spice: bool = True, uv_lock: Path | None = None)
     lock_digest = _sha256_file(lock) if lock.exists() else ""
 
     return {
-        "schema_version": "numeric_environment/1",
-        "isa_baseline": TIER_A_ISA_BASELINE,
-        "isa_dispatch_selected": _dispatch_selected(),
-        "isa_enabled_features": _isa_features(),
-        "interpreter": {
-            "version": platform.python_version(),
-            "binary_sha256": interpreter_digest,
+        "object": {
+            "schema_version": "numeric_environment/2",
+            "isa_baseline": TIER_A_ISA_BASELINE,
+            "isa_dispatch_selected": _dispatch_selected(),
+            "interpreter": {
+                "version": platform.python_version(),
+                "binary_sha256": interpreter_digest,
+            },
+            "uv_lock_sha256": lock_digest,
+            "mapped_libraries": libraries,
+            "blas": _blas(),
+            "thread_env": {key: os.environ.get(key, "") for key in sorted(THREAD_ENV)},
+            "isa_env": {key: os.environ.get(key, "") for key in sorted(ISA_ENV)},
+            "engine_build_ids": engine_ids,
         },
-        "uv_lock_sha256": lock_digest,
-        "mapped_libraries": libraries,
-        "blas": _blas(),
-        "thread_env": {key: os.environ.get(key, "") for key in sorted(THREAD_ENV)},
-        "isa_env": {key: os.environ.get(key, "") for key in sorted(ISA_ENV)},
-        "engine_build_ids": engine_ids,
+        "provenance": {
+            # Recorded, never refused on. See the docstring: two machines differing only here
+            # computed identical geometry.
+            "isa_enabled_features": _isa_features(),
+        },
     }
 
 
@@ -306,5 +334,10 @@ def numeric_environment_hash(document: dict[str, Any] | None = None, **kwargs: A
     decision 7 admits the prefix only in human-facing output.
     """
     from farsight.hashing.canonical import content_hash
+    from farsight.registry.bundle import object_half
 
-    return content_hash(document if document is not None else numeric_environment(**kwargs))
+    doc = document if document is not None else numeric_environment(**kwargs)
+    # `object_half` is ADR-001 rule 4 and lives in one place. A v1 flat document is
+    # its own object half, so an archived one still hashes to the value it was
+    # recorded under rather than silently becoming a different number.
+    return content_hash(object_half(doc))

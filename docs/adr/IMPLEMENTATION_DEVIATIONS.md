@@ -1333,3 +1333,69 @@ Linux), and that the predicate has been checked on a second runner shape — it 
 is a developer-convenience matter and not a project one — the predicate is measured, recorded and
 enforced in CI. A definition for `build_manifest_hash` is the remaining piece of ADR-019 decision
 1, and belongs to whichever record introduces the build manifest.
+
+
+## DEV-25 — RESOLVED: CPU capability left the hashed half of the Tier-A predicate
+
+**Record:** [ADR-019](ADR-019-reference-container.md) decision 2 (the `numeric_environment`
+document and its hash); decision 5 (a changed reference environment is a re-golding decision with
+a named owner); [ADR-006](ADR-006-reproducibility-tiers.md) §12, "same CPU ISA feature set";
+[ADR-001](ADR-001-content-addressed-identity.md) rule 4 (the two-key envelope)
+**Code:** `src/farsight/engines/environment.py`; `container/gate_in_image.py`;
+`container/digests.json`; `container/fingerprint.json`
+
+**What differs.** `numeric_environment()` was a flat document at `numeric_environment/1` and every
+field in it fed the predicate. It is now an ADR-001 envelope at `numeric_environment/2`, and
+`isa_enabled_features` — what the CPU is CAPABLE of — sits in the unhashed `provenance` half. It
+is still recorded. It can no longer refuse.
+
+**Why.** Because it was refusing environments that computed identical numbers, and that is
+measured rather than argued.
+
+Runs [34239183827](https://github.com/xuanhuyle/farsight/actions/runs/34239183827) and
+[34239675707](https://github.com/xuanhuyle/farsight/actions/runs/34239675707), same image
+definition, produced documents differing in **exactly one field**:
+
+    isa_enabled_features     +16 AVX-512/GFNI entries    vs    none
+    isa_dispatch_selected    ['X86_V3']                  vs    ['X86_V3']
+    interpreter, mapped_libraries, blas, uv_lock_sha256,
+    isa_env, thread_env, engine_build_ids, isa_baseline        identical
+
+Same interpreter binary, same mapped libm and CSPICE, same BLAS, same resolved lock, and NumPy
+selecting the same kernels on both. The geometry gate then produced **byte-identical channel
+hashes** across the two machines — `geometry.geometric_range`, `geometry.light_time`,
+`geometry.range` and `run.t_elapsed` all equal, on the same `spec_hash`. The predicate refused a
+pair of environments whose numbers agreed to the bit.
+
+Three `ubuntu-latest` runner shapes appeared in one day (0, 15 and 14 AVX-512 features, with and
+without `X86_V4`), so no single pinned value could hold. Re-golding to whichever shape ran last
+would have produced a green check meaning only that the same lottery ticket came up twice —
+exactly ADR-006's "unpassable for undiagnosable reasons", arriving as a false alarm rather than as
+a finding.
+
+What replaces capability in the hashed half was already there: `isa_dispatch_selected`, the
+kernels NumPy actually selected, added the same day to verify the ISA pin. It is the honest
+version of what the capability list was standing in for, and it was identical across both
+machines.
+
+**What this deliberately does NOT do.** It does not drop the field. Capability is the one fact
+that would explain a genuine future mismatch, and deleting the evidence that makes a surprise
+diagnosable is this project's characteristic failure. It stays in `provenance`, the gate still
+prints it beside the channel hashes, and `out/gate.json` still archives it.
+
+**The honest limit on the evidence.** Two machine shapes, not the three seen; the `X86_V4` runner
+never produced channel hashes, because at the time the gate was executing nothing at all (DEV-20,
+fourth update). One design, four channels, one grid — a strong signal, not a proof. And it says
+nothing about DEV-23, which is about glibc's libm and stays open: a narrower predicate makes a
+libm-induced mismatch **reachable** rather than masked behind a capability refusal, which is the
+point of ADR-019's falsifier and is an improvement in what can be learned, not a claim that the
+risk is gone.
+
+**Closes by:** closed. DEV-23 carries the remaining cross-CPU question.
+
+**Status:** Resolved 2026-09-08 on the founder's decision, taken after the two-machine comparison
+above. Five mutations fail the suite: hashing both halves, dropping `isa_dispatch_selected` from
+the hashed half, ceasing to record capability, rejecting an archived v1 flat document, and moving
+capability back into the hashed half. The shape guard was rewritten to stub the one Linux-only
+measurement, because it first shipped skipping on Windows and two of those mutations walked
+through the skip.
