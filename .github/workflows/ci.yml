@@ -202,4 +202,5 @@ jobs:
           path: |
             fingerprint.json
             fingerprint2.json
+            apt_versions.txt
             out/channels.json

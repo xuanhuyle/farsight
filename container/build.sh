@@ -55,9 +55,18 @@ echo "--- measuring the Tier-A predicate from inside the image (ADR-019 decision
 # them mid-line, so the document in the log could not be parsed -- which defeats the point of
 # emitting a document anyone can inspect.
 OUT="${FARSIGHT_FINGERPRINT:-fingerprint.json}"
-"$BUILDER" run --rm "$IMAGE:$TAG" python -c   'import json; from farsight.engines.environment import numeric_environment; print(json.dumps(numeric_environment(), indent=2, sort_keys=True))'   > "$OUT"
+"$BUILDER" run --rm "$IMAGE:$TAG" python -c \
+  'import json; from farsight.engines.environment import numeric_environment; print(json.dumps(numeric_environment(), indent=2, sort_keys=True))' \
+  > "$OUT"
 
-HASH="$("$BUILDER" run --rm "$IMAGE:$TAG" python -c   'from farsight.engines.environment import numeric_environment_hash; print(numeric_environment_hash())')"
+HASH="$("$BUILDER" run --rm "$IMAGE:$TAG" python -c \
+  'from farsight.engines.environment import numeric_environment_hash; print(numeric_environment_hash())')"
+
+# The bill of materials apt actually resolved. DEV-22 promised this file records it, and until
+# now it did not -- a note describing behaviour the code did not have.
+APT_OUT="${FARSIGHT_APT_VERSIONS:-apt_versions.txt}"
+"$BUILDER" run --rm "$IMAGE:$TAG" \
+  sh -c 'dpkg-query -W -f="\${binary:Package}=\${Version}\n"' > "$APT_OUT" 2>/dev/null || true
 
 echo "numeric_environment_hash: $HASH"
 echo "document written to: $OUT"

@@ -120,8 +120,16 @@ def test_unmeasured_fields_are_null_rather_than_plausible():
     else:
         assert status == "measured", status
         assert re.fullmatch(r"[0-9a-f]{64}", doc["numeric_environment_hash"] or "")
-        assert doc["accepted_image_digests"], "a measured environment has at least one image"
         assert doc["apt"]["resolved_versions"], "a measured build records what apt resolved"
+        assert doc["toolchain"]["uv_lock"], (
+            "a measured predicate must name the lock it was resolved from, or `uv_lock_sha256` "
+            "in the predicate has nothing to be checked against"
+        )
+        # `accepted_image_digests` is deliberately NOT required. ADR-019 decision 2: "a container
+        # cannot reliably read its own image digest from inside", so it is recorded as
+        # `source: reported` provenance whose mismatch "is reported and does not refuse".
+        # Requiring it here would demand a value the record says nobody can trust.
+        assert isinstance(doc["accepted_image_digests"], list)
 
 
 def test_build_sh_refuses_an_unpinned_base():
