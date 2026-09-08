@@ -39,7 +39,9 @@ fi
 # SOURCE_DATE_EPOCH makes timestamps in the image deterministic where the builder honours it.
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1756684800}"
 
-"$BUILDER" build \
+# shellcheck disable=SC2086 -- FARSIGHT_BUILD_ARGS is a deliberate word-split (e.g. --no-cache),
+# which is how the stability check forces a real re-resolve instead of reusing the install layer.
+"$BUILDER" build ${FARSIGHT_BUILD_ARGS:-} \
   --file "$HERE/Dockerfile" \
   --tag "$IMAGE:$TAG" \
   ${SOURCE_DATE_EPOCH:+--build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH"} \
@@ -47,12 +49,22 @@ export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1756684800}"
 
 echo
 echo "--- measuring the Tier-A predicate from inside the image (ADR-019 decision 2) ---"
-"$BUILDER" run --rm "$IMAGE:$TAG" python -c \
-  'import json,sys; from farsight.engines.environment import numeric_environment, numeric_environment_hash
-d = numeric_environment()
-print(json.dumps(d, indent=2, sort_keys=True))
-print("numeric_environment_hash:", numeric_environment_hash(d), file=sys.stderr)'
 
+# Written to a FILE rather than printed alongside the hash. An earlier version sent the document
+# to stdout and the hash to stderr from one command; CI merges the two streams and interleaved
+# them mid-line, so the document in the log could not be parsed -- which defeats the point of
+# emitting a document anyone can inspect.
+OUT="${FARSIGHT_FINGERPRINT:-fingerprint.json}"
+"$BUILDER" run --rm "$IMAGE:$TAG" python -c   'import json; from farsight.engines.environment import numeric_environment; print(json.dumps(numeric_environment(), indent=2, sort_keys=True))'   > "$OUT"
+
+HASH="$("$BUILDER" run --rm "$IMAGE:$TAG" python -c   'from farsight.engines.environment import numeric_environment_hash; print(numeric_environment_hash())')"
+
+echo "numeric_environment_hash: $HASH"
+echo "document written to: $OUT"
 echo
-echo "Record the hash above in container/digests.json under numeric_environment_hash."
 echo "It is MEASURED, never declared: a predicate we cannot measure is one we cannot enforce."
+echo "Record it in container/digests.json only once two INDEPENDENT builds agree on it."
+
+if [ -n "${GITHUB_ENV:-}" ]; then
+  echo "FARSIGHT_PREDICATE=$HASH" >> "$GITHUB_ENV"
+fi

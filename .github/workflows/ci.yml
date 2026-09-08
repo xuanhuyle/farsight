@@ -128,18 +128,40 @@ jobs:
           FARSIGHT_IMAGE: farsight-reference
           FARSIGHT_TAG: ci
 
+      - name: is the predicate STABLE across two independent builds?
+        # THE QUESTION THAT DECIDES WHETHER THE PREDICATE CAN BE PINNED AT ALL.
+        #
+        # Two runs of this workflow ten minutes apart produced DIFFERENT predicates
+        # (464c495d... then 448787d9...). There is no uv.lock, so nothing pins the dependency set
+        # and a rebuild may resolve different wheels -- which would move the predicate for a
+        # reason that is not an environment change, and make every Tier-A refusal meaningless.
+        #
+        # `--no-cache` on the second build is what makes this a test of RESOLUTION rather than of
+        # layer caching: with the cache, the install layer is reused and the answer is trivially
+        # yes while telling us nothing.
+        run: |
+          FARSIGHT_TAG=ci2 FARSIGHT_FINGERPRINT=fingerprint2.json           FARSIGHT_BUILD_ARGS=--no-cache ./container/build.sh > build2.log 2>&1 || {
+            tail -30 build2.log; exit 1; }
+          SECOND=$(grep -oP 'numeric_environment_hash: \K[0-9a-f]{64}' build2.log)
+          echo "build 1: $FARSIGHT_PREDICATE"
+          echo "build 2: $SECOND"
+          if [ "$FARSIGHT_PREDICATE" = "$SECOND" ]; then
+            echo "STABLE across two independent builds -- the predicate is pinnable."
+          else
+            echo "UNSTABLE: two builds of the same source produced different predicates."
+            echo "This is a finding, not a flake: it means the Tier-A predicate cannot be pinned"
+            echo "until the dependency set is (no uv.lock -- see DEV-24 and container/digests.json)."
+            diff <(python -m json.tool fingerprint.json) <(python -m json.tool fingerprint2.json) || true
+          fi
+        continue-on-error: true
+
       - name: measure the Tier-A predicate
         # ADR-019 decision 2: every field measured from inside the running worker, after the
         # numeric stack has imported -- which includes forcing the engine import, because the
         # SPICE adapter loads spiceypy lazily and CSPICE would otherwise not be mapped.
         run: |
-          $FARSIGHT_BUILDER run --rm farsight-reference:ci python -c '
-          import json
-          from farsight.engines.environment import numeric_environment, numeric_environment_hash
-          doc = numeric_environment()
-          print(json.dumps(doc, indent=2, sort_keys=True))
-          print("numeric_environment_hash =", numeric_environment_hash(doc))
-          ' | tee fingerprint.txt
+          echo "numeric_environment_hash = $FARSIGHT_PREDICATE"
+          python -m json.tool fingerprint.json
 
       - name: the gate, twice, inside the image
         # THE EXIT GATE'S OWN WORDING. Two runs of one frozen design in the container must produce
@@ -178,5 +200,6 @@ jobs:
         with:
           name: numeric-environment-fingerprint
           path: |
-            fingerprint.txt
+            fingerprint.json
+            fingerprint2.json
             out/channels.json
