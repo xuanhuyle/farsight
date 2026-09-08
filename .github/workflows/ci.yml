@@ -163,6 +163,30 @@ jobs:
           echo "numeric_environment_hash = $FARSIGHT_PREDICATE"
           python -m json.tool fingerprint.json
 
+      - name: does the build match the RECORDED predicate?
+        # This is what makes container/digests.json a control rather than a note. Until now it
+        # recorded a value nothing compared against.
+        #
+        # A mismatch FAILS. That is the point of a predicate: ADR-019 decision 5 already gives
+        # base-image changes "a named owner and a mechanical decision rule" plus a monthly refresh
+        # job, so a moved predicate is a re-golding decision somebody makes, not a number that
+        # drifts while every Tier-A claim quietly keeps asserting the old one.
+        run: |
+          RECORDED=$(python -c "import json;print(json.load(open('container/digests.json'))['numeric_environment_hash'] or '')")
+          echo "recorded: $RECORDED"
+          echo "measured: $FARSIGHT_PREDICATE"
+          if [ -z "$RECORDED" ]; then
+            echo "digests.json records no predicate; nothing to enforce yet."
+          elif [ "$RECORDED" = "$FARSIGHT_PREDICATE" ]; then
+            echo "MATCH -- the image is the one container/digests.json describes."
+          else
+            echo "MISMATCH. The reference environment changed."
+            echo "This is a re-golding decision (ADR-019 decision 5), not a number to overwrite:"
+            echo "read the diff, decide whether the change was intended, then update digests.json."
+            diff <(python -m json.tool fingerprint.json) <(python -m json.tool fingerprint2.json) || true
+            exit 1
+          fi
+
       - name: the gate, twice, inside the image
         # THE EXIT GATE'S OWN WORDING. Two runs of one frozen design in the container must produce
         # identical channel hashes. The synthetic-SPK design is used because it needs no download;

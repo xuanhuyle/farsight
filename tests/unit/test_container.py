@@ -425,3 +425,44 @@ def test_the_lock_exists_and_pins_what_the_predicate_depends_on():
     root = next(p for p in doc["package"] if p["name"] == "farsight")
     groups = set(root.get("optional-dependencies", {}))
     assert {"spice", "basilisk", "dev"} <= groups, groups
+
+
+def test_the_recorded_predicate_is_actually_enforced():
+    """A pinned value nothing compares against is a note, not a control.
+
+    `container/digests.json` records `numeric_environment_hash`; the container job must compare
+    the build's measured predicate against it and fail on a mismatch. Without that step the field
+    is decoration, and every Tier-A claim resting on it rests on nothing.
+    """
+    import yaml
+
+    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"))
+    steps = [s for s in workflow["jobs"]["container"]["steps"]
+             if "RECORDED" in (s.get("run") or "")]
+    assert steps, "the container job never reads the recorded predicate"
+
+    # Scoped to THIS step, not to the whole job. Asserting `"exit 1" in job` passed while the
+    # enforcement was deleted, because another step happens to contain the same two characters --
+    # a mutation walked straight through it.
+    # A step can be neutered without being deleted: `if: false` or `continue-on-error` leaves it
+    # in the file, satisfying a naive "the step exists" check, while CI skips it or ignores its
+    # result. Both were reachable here.
+    assert "if" not in steps[0], (
+        "the predicate comparison is conditional; a condition that evaluates false disables the "
+        "only thing enforcing the recorded value"
+    )
+    assert not steps[0].get("continue-on-error"), (
+        "the predicate comparison is continue-on-error, so a mismatch would be reported and "
+        "ignored -- which is what the stability probe is for, not what a pin is for"
+    )
+
+    step = steps[0]["run"]
+    assert "numeric_environment_hash" in step
+    assert "MISMATCH" in step, "the step does not distinguish a mismatch"
+    mismatch_branch = step[step.index("MISMATCH"):]
+    assert "exit 1" in mismatch_branch, (
+        "a predicate mismatch must FAIL the job. ADR-019 decision 5 makes a changed reference "
+        "environment a re-golding decision with a named owner, and nobody makes a decision that "
+        "CI reports as green"
+    )
