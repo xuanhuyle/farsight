@@ -157,7 +157,12 @@ def main() -> int:
     print("   spec_hash", record["spec_hash"])
     for line in record["channels"]:
         print("  ", line)
-    print("   x86 level:", ", ".join(record["x86_level"]) or "(none reported)")
+    # The AVX-512 COUNT belongs on this line, not only in the file. Two runners printed an
+    # identical "x86 level: X86_V2, X86_V3" while differing by 16 AVX-512 entries, and that line
+    # was read as "same machine". A summary that hides the field the predicate actually refuses
+    # on is worse than no summary.
+    print("   x86 level:", ", ".join(record["x86_level"]) or "(none reported)",
+          "| avx512:", len(record["avx512"]), "features")
     print("   isa pin  : HELD --", ", ".join(pin["selected"]),
           "at or below the declared", pin["declared_baseline"], "baseline")
     return 0

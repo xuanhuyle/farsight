@@ -160,3 +160,46 @@ reading a log for an absence.
 libm, which neither NumPy's dispatcher nor OpenBLAS's coretype reaches. `ISA_RESIDUE` is unchanged
 and unweakened by any of this: a correctly pinned NumPy still says nothing about the code path the
 weeks 1-2 gate actually exercises.
+
+## Postscript (2026-09-08) — two machines, same dispatch, different predicate
+
+The re-golded value failed on the very next run, and the failure is the cleanest evidence yet
+that the predicate refuses on the wrong thing.
+
+Run 34239183827 (`3e63163e...`, the re-golded value) against run 34239675707 (`d6957a34...`),
+same commit content, same image definition:
+
+| field | run …183827 | run …675707 |
+| --- | --- | --- |
+| `isa_enabled_features` | +16 entries: AVX512BF16, AVX512BITALG, AVX512BW, AVX512CD, AVX512DQ, AVX512F, AVX512FP16, AVX512IFMA, AVX512VBMI, AVX512VBMI2, AVX512VL, AVX512VNNI, AVX512VPOPCNTDQ, AVX512_CLX, AVX512_CNL, GFNI | — |
+| **`isa_dispatch_selected`** | **`['X86_V3']`** | **`['X86_V3']`** |
+| `interpreter`, `mapped_libraries`, `blas`, `uv_lock_sha256`, `isa_env`, `thread_env`, `engine_build_ids`, `isa_baseline`, `schema_version` | identical | identical |
+
+**Exactly one field differs, and it is not one that changes which code runs.** The two machines
+select the same NumPy kernels, map the same libm and the same CSPICE, run the same interpreter
+binary and resolve the same lock file. The predicate refuses anyway, because CPU capability is
+inside the hashed half.
+
+That is no longer a prediction from ADR-019's Context, nor an inference from a single mismatch. It
+is a two-machine measurement in which every determinant of the numbers agrees and the predicate
+disagrees. ADR-019's own falsifier for the predicate is stated in the other direction -- a bitwise
+mismatch where the predicates AGREE, which would mean a field is missing. This is the opposite
+failure: a field is present that should not be.
+
+**Three GitHub runner shapes have now been seen in one day**, all `ubuntu-latest`:
+
+    X86_V2 X86_V3         0 AVX-512      run 34239675707
+    X86_V2 X86_V3        15 AVX-512      run 34239183827
+    X86_V2 X86_V3 X86_V4 14 AVX-512      run 34214034902
+
+So no single pinned value can hold. Re-golding to whichever shape ran last is whack-a-mole, and
+each round would report a green check that means only "the same lottery ticket came up twice".
+
+**A reporting defect this exposed, fixed here.** The gate's summary line printed
+`x86 level: X86_V2, X86_V3` for the first two shapes above -- identical text for machines
+differing by 16 AVX-512 entries -- and that line was read as "same machine". The line now carries
+the AVX-512 count. A summary that omits the field the predicate refuses on is worse than none.
+
+**Not decided here.** Whether `isa_enabled_features` belongs in the hashed half at all is an
+ADR-019 decision 5 / ADR-006 question with a named owner, and it changes what a Tier-A claim
+means. The measurement is recorded; the decision is not taken.
