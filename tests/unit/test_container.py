@@ -370,3 +370,50 @@ def test_ci_runs_the_image_with_the_builder_that_built_it():
     assert "GITHUB_ENV" in (CONTAINER / "build.sh").read_text(encoding="utf-8"), (
         "build.sh does not export its builder choice, so CI cannot follow it"
     )
+
+
+def test_the_image_does_not_install_the_quarantined_analysis_extra():
+    """ADR-013 quarantines pandas and matplotlib from the truth loop; ADR-019 decision 1 names the
+    three extras the image takes -- `spice`, `basilisk`, `dev`.
+
+    `uv sync --all-extras` is one word shorter and installs a fourth, putting the quarantined
+    stack into the evidence-producing image: the one environment it must not be in. The
+    quarantine is enforced by an import contract, so nothing would have IMPORTED it -- which is
+    exactly why this needs its own check. A dependency that is present but unimported is invisible
+    until someone imports it.
+    """
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    sync = [ln for ln in text.splitlines() if "uv sync" in ln]
+    assert sync, "the image does not sync a locked environment"
+    for line in sync:
+        assert "--all-extras" not in line, (
+            "`uv sync --all-extras` installs the quarantined `analysis` extra (pandas, "
+            "matplotlib) into the evidence-producing image. ADR-019 names three extras: "
+            "--extra spice --extra basilisk --extra dev"
+        )
+        assert "--locked" in line, "the sync must be --locked, or the lock is decorative"
+    for extra in ("spice", "basilisk", "dev"):
+        assert f"--extra {extra}" in text, f"ADR-019 names the {extra} extra"
+
+
+def test_the_lock_exists_and_pins_what_the_predicate_depends_on():
+    """With no uv.lock, `numeric_environment.uv_lock_sha256` is the empty string and the Tier-A
+    predicate does not pin the dependency set -- two images built a month apart could resolve
+    different wheels and still produce the same predicate, which is the one thing the predicate
+    exists to prevent."""
+    import tomllib
+
+    lock = REPO / "uv.lock"
+    assert lock.exists(), "no uv.lock: the Tier-A predicate cannot pin the dependency set"
+
+    doc = tomllib.loads(lock.read_text(encoding="utf-8"))
+    versions = {p["name"]: p.get("version") for p in doc["package"]}
+
+    # The three that actually reach a number: the toolkit, the array library, and the linter whose
+    # version is pinned in pyproject precisely so the enforced rule set cannot move.
+    for name in ("spiceypy", "numpy", "ruff"):
+        assert versions.get(name), f"{name} is not pinned by the lock"
+
+    root = next(p for p in doc["package"] if p["name"] == "farsight")
+    groups = set(root.get("optional-dependencies", {}))
+    assert {"spice", "basilisk", "dev"} <= groups, groups

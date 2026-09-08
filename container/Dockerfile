@@ -64,18 +64,18 @@ WORKDIR /farsight
 # `test_the_image_contains_everything_the_suite_reads` fails if the two drift apart.
 COPY . .
 
-# NO uv.lock EXISTS YET, and the consequence is stated rather than left to be discovered:
-# `numeric_environment.uv_lock_sha256` comes out EMPTY, so the Tier-A predicate does not currently
-# pin the dependency set. That is a real weakness in the Tier-A story -- two images built a month
-# apart could resolve different wheels and still produce the same predicate. ADR-014 wants the
-# lock; generating it needs uv, which is not installed on the machine that wrote this. Recorded in
-# container/digests.json.
+# THE EXTRAS ARE NAMED, NOT `--all-extras`. ADR-019 decision 1 says the image materializes
+# "`uv sync --locked` with the `spice`, `basilisk` and `dev` extras" -- three, not four. The fourth
+# is `analysis` (pandas, matplotlib), which ADR-013 QUARANTINES from the truth loop precisely so
+# that nothing in the evidence path can import it. `--all-extras` would have installed the
+# quarantined stack into the evidence-producing image, which is the one place it must not be.
 #
-# `--locked` and not `--frozen` for when one does exist: the lock must already satisfy the
-# manifest, and a build that would have had to re-resolve fails instead of quietly resolving
-# something else.
+# `--locked` and not `--frozen`: the lock must already satisfy the manifest, and a build that
+# would have had to re-resolve fails instead of quietly resolving something else. That is what
+# makes `uv_lock_sha256` in the Tier-A predicate mean something -- it names the resolution the
+# image was actually built from.
 RUN set -eux; \
-    if [ -f uv.lock ]; then uv sync --locked --all-extras; \
+    if [ -f uv.lock ]; then uv sync --locked --extra spice --extra basilisk --extra dev; \
     else uv venv && uv pip install -e ".[dev,spice]"; fi
 
 # ADR-002 owns the thread pins and ADR-019 owns the ISA pins. They are set HERE, in the image, and
