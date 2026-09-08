@@ -340,3 +340,26 @@ def test_every_copy_source_exists_in_the_build_context():
         f"COPY sources absent from the build context (the repository root, which is what "
         f"build.sh passes): {missing}"
     )
+
+
+def test_ci_runs_the_image_with_the_builder_that_built_it():
+    """A runner with both podman and docker will happily build into one store and fail to find the
+    image in the other.
+
+    That is what happened: `build.sh` prefers podman, GitHub's runner has it, and the CI steps
+    afterwards said `docker run` -- so a successful build was followed by "Unable to find image
+    ... locally" and exit 125. The build script now exports its choice and the steps use it.
+    """
+    workflow = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    container_job = workflow[workflow.index("\n  container:"):]
+
+    assert "FARSIGHT_BUILDER" in container_job, (
+        "the container job does not use the builder build.sh selected"
+    )
+    assert not re.search(r"(?<![\"$])\bdocker run\b", container_job), (
+        "the container job hardcodes `docker run` while build.sh auto-detects a builder; on a "
+        "runner with both, that reads from the wrong store"
+    )
+    assert "GITHUB_ENV" in (CONTAINER / "build.sh").read_text(encoding="utf-8"), (
+        "build.sh does not export its builder choice, so CI cannot follow it"
+    )

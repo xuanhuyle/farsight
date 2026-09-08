@@ -28,6 +28,14 @@ if [ -z "$BUILDER" ]; then
 fi
 echo "builder: $BUILDER ($($BUILDER --version 2>/dev/null | head -1))"
 
+# Export the CHOICE, so that whatever runs the image afterwards runs the one that was just built.
+# A GitHub runner has both podman and docker; this script prefers podman, and a caller that then
+# said `docker run` looked in the other store and got "Unable to find image ... locally" after a
+# perfectly successful build.
+if [ -n "${GITHUB_ENV:-}" ]; then
+  echo "FARSIGHT_BUILDER=$BUILDER" >> "$GITHUB_ENV"
+fi
+
 # SOURCE_DATE_EPOCH makes timestamps in the image deterministic where the builder honours it.
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1756684800}"
 

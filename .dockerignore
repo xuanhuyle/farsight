@@ -18,7 +18,10 @@ venv/
 # reads it, and the line-ending policy is exactly the kind of thing that must hold
 # inside the image too.
 .git/
-.github/
+# `.github/` STAYS: the suite reads the workflow (the container job must use the builder
+# that built the image), and the in-image run would fail without it. Excluding it was
+# caught by test_the_image_contains_everything_the_suite_reads, which is what that test
+# is for.
 
 # Local state that is not the image's business.
 out/

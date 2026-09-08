@@ -133,7 +133,7 @@ jobs:
         # numeric stack has imported -- which includes forcing the engine import, because the
         # SPICE adapter loads spiceypy lazily and CSPICE would otherwise not be mapped.
         run: |
-          docker run --rm farsight-reference:ci python -c '
+          $FARSIGHT_BUILDER run --rm farsight-reference:ci python -c '
           import json
           from farsight.engines.environment import numeric_environment, numeric_environment_hash
           doc = numeric_environment()
@@ -146,7 +146,7 @@ jobs:
         # identical channel hashes. The synthetic-SPK design is used because it needs no download;
         # the real-Psyche leg needs 46 MiB of kernels this job does not fetch.
         run: |
-          docker run --rm -v "$PWD/out:/out" farsight-reference:ci python - <<'EOF'
+          $FARSIGHT_BUILDER run --rm -v "$PWD/out:/out" farsight-reference:ci python - <<'EOF'
           import json, sys, tempfile
           from pathlib import Path
           sys.path[:0] = ["tests", "tests/unit"]
@@ -169,7 +169,7 @@ jobs:
           EOF
 
       - name: the full suite inside the image
-        run: docker run --rm farsight-reference:ci python -m pytest tests/unit -q
+        run: $FARSIGHT_BUILDER run --rm farsight-reference:ci python -m pytest tests/unit -q
 
       - uses: actions/upload-artifact@v4
         with:
