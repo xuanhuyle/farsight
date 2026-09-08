@@ -9,7 +9,7 @@ A fresh interpreter per case, because NumPy reads the variable once while import
 already-imported module cannot answer the question. Local host, Windows, **NumPy 2.5.2**
 (`scratchpad/probe_isa3.py`). The container runs **NumPy 2.4.6**, so the same probe was added to
 `container/gate_in_image.py` and its result is recorded in `out/gate.json` on every container CI
-run.
+run. That in-image measurement is Result 1b below, and it does not match the local one.
 
 ## Result 1 — the pinned names are rejected, silently
 
@@ -19,12 +19,38 @@ run.
 
 This NumPy dispatches on psABI **group** targets -- `__cpu_baseline__ = ['X86_V2']`,
 `__cpu_dispatch__ = ['X86_V3']` -- not on individual feature names. Every one of the six names in
-`ISA_ENV` (`AVX512F AVX512CD AVX512_SKX AVX512_CLX AVX512_CNL AVX512_ICL`) is an individual
-feature name, so every one is rejected.
+`ISA_ENV` is an individual feature name, so on this wheel every one is rejected.
 
 **The rejection is invisible.** It is an `ImportWarning`, which CPython suppresses by default. A
 pin naming features NumPy will not accept therefore behaves identically to a pin that works:
 silent, exit 0, no output. The probe passes `-W always::ImportWarning` to see it at all.
+
+## Result 1b -- measured INSIDE the image, and it is worse there
+
+Run 34232188399, NumPy 2.4.6, the manylinux wheel the image actually installs. The dispatch set
+is larger than the local wheel's, which changes the answer in a way a laptop could not have shown:
+
+    dispatched optimizations:  X86_V3  X86_V4  AVX512_ICL  AVX512_SPR
+
+    rejected: AVX512F AVX512CD AVX512_SKX AVX512_CLX AVX512_CNL
+    accepted: AVX512_ICL   (it happens to be a dispatch target)
+
+Five of the six pinned names are rejected. The sixth, `AVX512_ICL`, is accepted only by accident
+of being a target name on this wheel -- so the pin is not uniformly inert, it is *arbitrary*,
+which is harder to reason about than uniformly inert.
+
+**And `X86_V4` is a dispatch target in this image.** So on X86_V4 silicon NumPy will dispatch
+AVX-512 kernels, and `ISA_ENV` does not stop it: the group names that would stop it (`X86_V4`,
+`AVX512_SPR`) are not among the six pinned, and the individual names that are pinned cannot
+express it. ADR-019 decision 3 says runtime CPU dispatch "is pinned to a declared baseline". In
+this image it is not pinned at all above `X86_V3`.
+
+The names that WOULD work for this wheel are the target names -- `X86_V4 AVX512_ICL AVX512_SPR`.
+That change is **not made here**: `ISA_ENV` is inside the hashed environment document, so editing
+it moves the predicate, which is a re-golding decision under ADR-019 decision 5. It is also not
+obviously the right fix, because the targets are a property of the WHEEL and would have to be
+re-derived whenever NumPy is upgraded -- a pin that silently goes stale on a dependency bump is
+the same failure mode one level up. Whoever owns that decision should see this paragraph first.
 
 A name that does not exist at all (`NOT_A_REAL_FEATURE`) produced no warning and no error, so a
 typo in this variable is not detectable from its behaviour either.

@@ -1170,19 +1170,29 @@ while testing nothing.
 
 **Update 2026-09-08 -- two premises measured; one of them was wrong.**
 
-**The `NPY_DISABLE_CPU_FEATURES` half of ADR-019 decision 3 is inoperative on its own terms.** Not
-insufficient for libm, which is what this entry was opened about -- inoperative. NumPy dispatches
-on psABI GROUP targets (`__cpu_baseline__ = ['X86_V2']`, `__cpu_dispatch__ = ['X86_V3']`), and all
-six names in `ISA_ENV` are individual feature names, so NumPy rejects every one of them:
+**The `NPY_DISABLE_CPU_FEATURES` half of ADR-019 decision 3 does not do what the record says.**
+Not insufficient for libm, which is what this entry was opened about -- ineffective on its own
+terms. Measured inside the image (run 34232188399, NumPy 2.4.6):
 
-    You cannot disable CPU features (AVX2), since they are not part of the
-    dispatched optimizations (X86_V3).
+    dispatched optimizations:  X86_V3  X86_V4  AVX512_ICL  AVX512_SPR
+    rejected: AVX512F AVX512CD AVX512_SKX AVX512_CLX AVX512_CNL
+    accepted: AVX512_ICL
 
-That rejection is an `ImportWarning`, which CPython hides by default, so the failing pin and a
+NumPy dispatches on psABI GROUP targets; five of the six names in `ISA_ENV` are individual
+feature names and are rejected. The sixth is accepted only because it happens to also be a target
+name on this wheel, so the pin is arbitrary rather than uniformly inert -- harder to reason about,
+not easier.
+
+**`X86_V4` is a dispatch target in this image**, so on X86_V4 silicon NumPy dispatches AVX-512
+kernels and `ISA_ENV` does not prevent it. ADR-019 decision 3 says dispatch "is pinned to a
+declared baseline"; above `X86_V3` it is not pinned at all.
+
+The rejection is an `ImportWarning`, which CPython hides by default, so a failing pin and a
 working pin are the same observation: silence. A name that does not exist at all produced no
-warning either. ADR-019 recorded these names as UNVERIFIED; they are now verified as not working.
-Full probe in `docs/measurements/numpy-isa-pin.md`, and the same measurement now runs inside the
-image on every container CI run and lands in `out/gate.json`.
+warning either, so a typo here is equally undetectable. ADR-019 recorded these names as
+UNVERIFIED; they are now measured. Full probe and the candidate correct names in
+`docs/measurements/numpy-isa-pin.md`; the measurement runs on every container CI run and lands in
+`out/gate.json`, so it cannot go quietly stale on a NumPy upgrade.
 
 **The sentence above -- "while `isa_enabled_features` reports the same list" -- is wrong.** That
 field comes from `__cpu_features__`, which reports CPU CAPABILITY and does not respond to
