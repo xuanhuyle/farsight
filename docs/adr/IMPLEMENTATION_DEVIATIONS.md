@@ -1144,38 +1144,76 @@ while testing nothing.
 **Status:** Open, and this is the largest unclosed hole in the Tier-A story.
 
 
-## DEV-24 — `numeric_environment_hash` is unmeasured, because no container can run on this host
+## DEV-24 — RESOLVED: the Tier-A predicate is measured, and CI enforces it
 
 **Record:** [ADR-019](ADR-019-reference-container.md) decision 2 — the Tier-A predicate, "measured
 **from inside the running worker, after the numeric stack has imported** - not declared"
 **Code:** `container/digests.json`; `container/build.sh`; `.github/workflows/ci.yml`
 
-**What differs.** `container/digests.json` carries `numeric_environment_hash: null`,
-`build_manifest_hash: null`, `accepted_image_digests: []` and `apt.resolved_versions: null`. The
-image has never been built.
+**What differs.** Nothing that this entry was opened for. It is kept because it records a
+discipline that was tested rather than merely stated.
 
-**Why.** Intel VT-x is disabled in this machine's UEFI firmware
-(`VirtualizationFirmwareEnabled: False` on an i7-10610U, which supports it). WSL2 therefore cannot
-start — `HCS_E_HYPERV_NOT_INSTALLED` — and with it neither Docker Desktop nor a podman-in-WSL2
-fallback. Clearing that needs a firmware change and a reboot, which is a physical act at the
-machine and not something the build can route around.
+**Why.** A resolved entry stays in the ledger rather than being deleted, because what it records
+is not the gap but the decision taken while the gap was open: the field was left null on a machine
+that could not measure it, when writing a plausible digest would have been invisible and would have
+been inherited by every Tier-A comparison afterwards. Deleting the entry would leave the pinned
+value in `digests.json` with nothing saying how it was arrived at, or why it could not honestly
+have been recorded a day earlier.
 
-Writing a plausible digest into those fields would be precisely the failure ADR-019 warns about:
-"a predicate we cannot measure is a predicate we cannot enforce." Every later Tier-A comparison
-would inherit the fabrication, and it would compare equal against nothing real.
+**The history, because the discipline is the point.** This entry was opened with
+`numeric_environment_hash: null` and the image never built. Intel VT-x is disabled in the
+development machine's UEFI firmware (`VirtualizationFirmwareEnabled: False` on an i7-10610U that
+supports it), so WSL2 could not start — `HCS_E_HYPERV_NOT_INSTALLED` — and with it neither Docker
+Desktop nor a podman-in-WSL2 fallback.
 
-The build is therefore done where a runtime exists: the `container` CI job builds the image, runs
-the geometry gate inside it twice, compares channel hashes, and uploads the measured fingerprint.
-`test_unmeasured_fields_are_null_rather_than_plausible` fails if anyone fills the fields in
-without the build that produces them.
+The tempting move was to write a plausible 64-hex string into the field. ADR-019 says why not: "a
+predicate we cannot measure is a predicate we cannot enforce." Every later Tier-A comparison would
+have inherited the fabrication and compared equal against nothing. So the field stayed null, this
+entry said why, and `test_unmeasured_fields_are_null_rather_than_plausible` failed if anyone filled
+it in without the build that produces it.
 
-**What is NOT claimed as a consequence:** that the image builds, that it reproduces channel hashes
-bitwise, or any Tier-A property at all. No run can be Tier A while the predicate is unmeasured.
+**What closed it.** The `container` CI job — a GitHub runner has the virtualization this machine
+does not, so the block was one machine's rather than the project's. Measured on 2026-09-08 in
+[run 34200416987](https://github.com/xuanhuyle/farsight/actions/runs/34200416987):
 
-**Closes by:** the `container` CI job going green once, its measured
-`numeric_environment_hash` recorded in `digests.json`, and `measurement_status.state` moved to
-`measured` — at which point the test above starts enforcing the opposite assertions.
+    numeric_environment_hash  5754c3748638a8d2ae56da793bf8fd4f40c51c69d2a60488987d6cd3bde78035
+    uv_lock_sha256            9ca0b47cf841e3a0ee0309767e66c1704ab42b23e7852d29fc46fa8738e9d67e
+    apt bill of materials     108 packages, dpkg-query inside the image
 
-**Status:** Open. Blocked on hardware the repository does not control; the CI path exists so the
-block is one machine's, not the project's.
+Two independent builds — the second with `--no-cache`, so a genuine re-resolve rather than a reused
+layer — produced **byte-identical** environment documents, and the hash was recomputed from the
+archived artifact rather than copied out of a log.
 
+It only became honest to record once `uv.lock` existed. Before that, `uv_lock_sha256` was the empty
+string: two builds a month apart could have resolved different wheels while the predicate claimed
+they had not, which is the one thing a predicate exists to prevent.
+
+**And it is enforced, not merely recorded.** A pinned value nothing compares against is a note, so
+the container job checks the build against `digests.json` and a mismatch FAILS. ADR-019 decision 5
+already makes a changed reference environment a re-golding decision with a named owner, and nobody
+makes a decision CI reports as green. Three ways of neutering that check — deleting the enforcing
+exit, `if: false`, and `continue-on-error` — each fail the suite.
+
+**Two fields are still unfilled, and neither is an oversight.**
+
+`accepted_image_digests` is empty by design. ADR-019 decision 2: "a container cannot reliably read
+its own image digest from inside", so it is `source: reported` provenance whose mismatch "is
+reported and does not refuse". Recording one would add a field that looks like a control and is
+not.
+
+`build_manifest_hash` is null because **nothing in this repository defines what the build manifest
+is**. ADR-019 decision 1 names the field and no record says what it hashes. Inventing a definition
+in order to fill a field would be the same failure this entry was opened about, one field over.
+That gap is real and is stated here rather than closed by guessing.
+
+**What is still NOT claimed, and does not follow from a measured predicate:** any cross-CPU claim
+(DEV-23 — the ISA pins do not reach the libm path SPICE geometry actually uses, and no two-CPU
+measurement exists), any cross-OS claim (ADR-006 forecloses one, and `mapped_libraries` refuses off
+Linux), and that the predicate has been checked on a second runner shape — it has not.
+
+**Closes by:** closed.
+
+**Status:** Resolved 2026-09-08. The local build remains blocked on this machine's firmware, which
+is a developer-convenience matter and not a project one — the predicate is measured, recorded and
+enforced in CI. A definition for `build_manifest_hash` is the remaining piece of ADR-019 decision
+1, and belongs to whichever record introduces the build manifest.

@@ -89,8 +89,16 @@ def test_implementation_deviations_ledger_is_structured_and_points_at_real_files
                 "**Closes by:**", "**Status:**"]
     for entry in entries:
         title = entry.splitlines()[0].strip()
-        for field in required:
-            assert field in entry, f"deviation entry {title!r} is missing {field}"
+        # The message lists the WHOLE set, not just the first omission. `**Why.**` has been left
+        # out of four separate entries in this repository, each time by composing the headings
+        # from memory instead of copying an existing entry; a message that names one missing
+        # heading invites fixing that one and rediscovering the next on the following run.
+        missing = [f for f in required if f not in entry]
+        assert not missing, (
+            f"deviation entry {title!r} is missing {missing}.\n"
+            f"Every entry carries all of: {required}.\n"
+            f"Copy an existing entry as a template rather than writing the headings out."
+        )
 
         # Every source file an entry blames must exist, or the entry describes a world that
         # has moved on.
