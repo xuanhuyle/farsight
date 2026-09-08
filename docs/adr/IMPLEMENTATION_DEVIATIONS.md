@@ -1220,9 +1220,44 @@ before that the gate was executing nothing at all (DEV-20, fourth update). The c
 been reordered to run the gate first, so the next X86_V4 allocation records channel hashes and the
 comparison becomes possible without arranging anything.
 
-**Status:** Open, and this is the largest unclosed hole in the Tier-A story. The ISA pin is now known to be
-inoperative and the predicate to over-fire on CPU identity; the cross-CPU geometry comparison
-that would actually close this remains unrun.
+**Update 2026-09-08 (second) -- the pin is fixed, on a founder decision, and it is now checked.**
+
+`ISA_ENV` reads `NPY_DISABLE_CPU_FEATURES = "X86_V4 AVX512_ICL AVX512_SPR"` -- the dispatch-target
+names above the declared baseline. `X86_V3` is deliberately absent: it IS the baseline, and
+disabling it would drop every run below the level the predicate claims rather than normalizing to
+it.
+
+**Correct names were not sufficient, and the reason is the interesting part.** An unrecognised
+name is accepted by NumPy in silence and changes nothing -- measured: `NOT_A_FEATURE` produced no
+warning and left the selection untouched. So a pin cannot be verified by the absence of a
+complaint, which is how the previous six survived. `_dispatch_selected()` reports what NumPy
+actually selected, it is recorded in the hashed document as `isa_dispatch_selected`, and the
+in-image gate REFUSES a run whose selection sits above the declared baseline -- before any
+geometry runs, since a refusal issued after the channels exist is a report and not a gate. Five
+tests hold the shape, all mutation-checked; one of them caught the ordering wrong on the first
+attempt.
+
+The predicate moved as a consequence and was re-golded from a measurement, not a guess:
+`5754c374...` to `3e63163e...`, two builds with the second `--no-cache` producing byte-identical
+documents, recomputed from the archived artifact rather than read out of a log.
+
+**What is NOT established.** The re-golding run was allocated X86_V3 silicon, where `X86_V3` is
+selected with or without any pin. So NumPy *accepts* these names -- it rejected the previous six
+-- and the selection sits at the baseline; that the pin *changes* anything is not shown, and
+cannot be on this hardware. The first X86_V4 allocation settles it without anyone arranging
+anything: the gate either reports `selected: X86_V3`, which is the pin working where it matters,
+or refuses.
+
+**This entry stays open regardless of how that lands.** Its subject is glibc's libm, which neither
+NumPy's dispatcher nor OpenBLAS's coretype reaches, and which is the path SPICE geometry actually
+uses. A correctly pinned NumPy says nothing about the weeks 1-2 gate's own arithmetic.
+`ISA_RESIDUE` is unchanged and unweakened. `GLIBC_TUNABLES` remains deliberately unset, for the
+reason given above: setting a lever whose effect has not been measured on two CPU generations
+would be an unmeasured claim, and this update does not supply that measurement.
+
+**Status:** Open, and this is the largest unclosed hole in the Tier-A story. The NumPy half of the
+pin is fixed and mechanically checked as of 2026-09-08; the libm half is untouched, and the
+cross-CPU geometry comparison that would actually close this remains unrun.
 
 
 ## DEV-24 — RESOLVED: the Tier-A predicate is measured, and CI enforces it

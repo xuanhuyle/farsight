@@ -13,14 +13,33 @@
     "version": "3.12.8"
   },
   "isa_baseline": "x86-64-v3",
+  "isa_dispatch_selected": [
+    "X86_V3"
+  ],
   "isa_enabled_features": [
     "AVX",
     "AVX2",
+    "AVX512BF16",
+    "AVX512BITALG",
+    "AVX512BW",
+    "AVX512CD",
+    "AVX512DQ",
+    "AVX512F",
+    "AVX512FP16",
+    "AVX512IFMA",
+    "AVX512VBMI",
+    "AVX512VBMI2",
+    "AVX512VL",
+    "AVX512VNNI",
+    "AVX512VPOPCNTDQ",
+    "AVX512_CLX",
+    "AVX512_CNL",
     "BMI",
     "BMI2",
     "CX16",
     "F16C",
     "FMA3",
+    "GFNI",
     "LAHF",
     "LZCNT",
     "MMX",
@@ -38,7 +57,7 @@
     "X86_V3"
   ],
   "isa_env": {
-    "NPY_DISABLE_CPU_FEATURES": "AVX512F AVX512CD AVX512_SKX AVX512_CLX AVX512_CNL AVX512_ICL",
+    "NPY_DISABLE_CPU_FEATURES": "X86_V4 AVX512_ICL AVX512_SPR",
     "OPENBLAS_CORETYPE": "Haswell"
   },
   "mapped_libraries": [

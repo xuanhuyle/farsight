@@ -1,7 +1,8 @@
 # Does `NPY_DISABLE_CPU_FEATURES` do anything?
 
 **Measured 2026-09-08.** ADR-019 decision 3 records the variable names in `ISA_ENV` as
-UNVERIFIED. This is the verification, and the answer is no.
+UNVERIFIED. This is the verification. The answer was no; the names were then fixed on the
+founder's decision, and the Resolution section at the end records what that did and did not buy.
 
 ## What was run
 
@@ -46,11 +47,11 @@ express it. ADR-019 decision 3 says runtime CPU dispatch "is pinned to a declare
 this image it is not pinned at all above `X86_V3`.
 
 The names that WOULD work for this wheel are the target names -- `X86_V4 AVX512_ICL AVX512_SPR`.
-That change is **not made here**: `ISA_ENV` is inside the hashed environment document, so editing
-it moves the predicate, which is a re-golding decision under ADR-019 decision 5. It is also not
-obviously the right fix, because the targets are a property of the WHEEL and would have to be
-re-derived whenever NumPy is upgraded -- a pin that silently goes stale on a dependency bump is
-the same failure mode one level up. Whoever owns that decision should see this paragraph first.
+Applying them was a re-golding decision under ADR-019 decision 5, because `ISA_ENV` is inside the
+hashed document. **The founder took that decision on 2026-09-08**; see Resolution below. The
+caveat raised at the time stands and is now mechanically covered: the targets are a property of
+the WHEEL and would have to be re-derived on a NumPy upgrade, so the gate measures the EFFECT
+rather than trusting the names.
 
 A name that does not exist at all (`NOT_A_REAL_FEATURE`) produced no warning and no error, so a
 typo in this variable is not detectable from its behaviour either.
@@ -110,3 +111,52 @@ channel hashes in `out/gate.json` and the comparison becomes possible.
 `ISA_RESIDUE` remains true and is untouched by any of this: SPICE geometry is CSPICE arithmetic
 over glibc's libm, which neither NumPy's dispatcher nor OpenBLAS's coretype reaches. Even a
 working `NPY_DISABLE_CPU_FEATURES` would not constrain the gate's own code path.
+
+
+## Resolution (2026-09-08)
+
+`ISA_ENV` now reads:
+
+    NPY_DISABLE_CPU_FEATURES = "X86_V4 AVX512_ICL AVX512_SPR"
+
+`X86_V3` is deliberately absent -- it is the declared baseline, and disabling it would drop every
+run *below* the level the predicate claims rather than normalizing to it.
+
+**Verified how, given that a wrong name is silent.** Result 2 above is the reason the obvious
+check does not work: an unrecognised name is accepted without complaint and changes nothing, so
+the absence of a warning proves nothing. `_dispatch_selected()` reports what NumPy actually
+selected (`np.lib.introspect.opt_func_info`), that value is recorded in the hashed document as
+`isa_dispatch_selected`, and `container/gate_in_image.py` REFUSES a gate run whose selection sits
+above the declared baseline -- before any geometry runs, because a refusal issued after the
+channels are written is a report about evidence rather than a gate on producing it.
+
+Measured in run 34239183827:
+
+    numpy_rejected_the_pin : False        (the previous six names were rejected)
+    dispatch targets       : X86_V3 X86_V4 AVX512_ICL AVX512_SPR    (numpy 2.4.6)
+    selected               : X86_V3
+    gate                   : HELD -- at or below the declared x86-64-v3 baseline
+
+**The predicate moved, and was re-golded from a measurement.**
+
+    5754c3748638a8d2...  ->  3e63163eb56ec627...
+
+Two independent builds, the second `--no-cache`, produced byte-identical documents, and the new
+value was recomputed from the archived artifact rather than copied out of a log.
+`container/fingerprint.json` is that artifact's document, copied byte-for-byte.
+
+**What this does NOT establish, and the limit is a real one.** The re-golding run was allocated
+**X86_V3 silicon**, where `X86_V3` is what NumPy selects with or without any pin. So what is shown
+is that NumPy *accepts* these names and that the selection sits at the baseline -- not that the
+pin *changed* anything. Its effect is observable only on silicon that could dispatch above the
+baseline, and no such run has happened since the fix.
+
+That is not a gap needing arrangement. The check now fires on its own: the first X86_V4
+allocation either reports `selected: X86_V3` -- the pin working, on the hardware where it matters
+-- or refuses the gate outright. Both outcomes are informative, and neither can be reached by
+reading a log for an absence.
+
+**And it does not touch DEV-23's core point.** SPICE geometry is CSPICE arithmetic over glibc's
+libm, which neither NumPy's dispatcher nor OpenBLAS's coretype reaches. `ISA_RESIDUE` is unchanged
+and unweakened by any of this: a correctly pinned NumPy still says nothing about the code path the
+weeks 1-2 gate actually exercises.
