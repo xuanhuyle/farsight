@@ -378,12 +378,55 @@ def _cli(*args):
 
 def test_geometry_is_a_leaf_command_and_not_a_group():
     """ADR-024 decision 1 spells it `farsight geometry --design PATH --out DIR`. A group would
-    make every invocation `farsight geometry <something>`, which is a different published
-    surface."""
+    make every invocation `farsight geometry <something>`, which is a different published surface.
+
+    Asserted against the COMMAND OBJECT, not against rendered help text.
+
+    The first version of this searched `--help` output for the option strings, and it passed on
+    Windows while failing on Linux CI. Cause: Rich emits no styling when it decides the terminal
+    cannot take it -- which is what happens locally -- and full styling on a CI runner, where it
+    splits an option name across colour codes so that `"--design" in output` is false while the
+    text a human reads is identical. That test was checking Rich's renderer and the terminal it
+    happened to run in, not ADR-024's surface.
+    """
+    import typer.main
+
+    from farsight.cli.main import app
+
+    cli = typer.main.get_command(app)
+    # Duck-typed rather than `isinstance(..., click.Group)`: click 8.5 restructured its hierarchy
+    # and `TyperGroup` no longer has `click.Group` in its MRO, so an isinstance check would fail
+    # for a reason that has nothing to do with this command's surface. "Is it a group" is really
+    # "does it have subcommands", and that is what is asserted.
+    assert hasattr(cli, "commands"), "the top-level `farsight` app is a group"
+    assert "geometry" in cli.commands, f"no `geometry` command: {sorted(cli.commands)}"
+
+    geometry = cli.commands["geometry"]
+    assert not hasattr(geometry, "commands"), (
+        "`geometry` is a LEAF command (ADR-024 decision 1). As a group, every invocation would be "
+        "`farsight geometry <something>` -- a different published surface, and the command names "
+        "are printed into shipped evidence packages"
+    )
+
+    declared = {opt for param in geometry.params for opt in getattr(param, "opts", [])}
+    assert {"--design", "--out", "--shadow-units"} <= declared, declared
+
+    required = {p.name for p in geometry.params if getattr(p, "required", False)}
+    assert {"design", "out"} <= required, (
+        f"--design and --out have no defaults and must stay required; required={required}"
+    )
+
+
+def test_geometry_help_renders():
+    """A smoke check that the help path works at all, kept separate from the surface assertion.
+
+    Deliberately says nothing about the CONTENT of the rendering: that is Rich's business, it
+    differs between a coloured and an uncoloured terminal, and testing it is how the surface
+    assertion above came to pass on one platform and fail on another.
+    """
     result = _cli("geometry", "--help")
     assert result.exit_code == 0
-    assert "--design" in result.output and "--out" in result.output
-    assert "--shadow-units" in result.output
+    assert result.output.strip()
 
 
 def test_the_command_runs_and_exits_zero(prepared, tmp_path):

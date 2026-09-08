@@ -29,7 +29,7 @@ RUN set -eux; \
     printf 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/%s bookworm-security main\n' "$DEBIAN_SNAPSHOT" >> /etc/apt/sources.list; \
     printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99snapshot
 
-COPY packages.txt /tmp/packages.txt
+COPY container/packages.txt /tmp/packages.txt
 RUN set -eux; \
     apt-get update; \
     grep -vE '^\s*(#|$)' /tmp/packages.txt | xargs apt-get install -y --no-install-recommends; \
@@ -53,14 +53,27 @@ RUN set -eux; \
     uv python install "${PYTHON_VERSION}"
 
 WORKDIR /farsight
-COPY pyproject.toml uv.lock* README.md ./
-COPY src ./src
-COPY tests ./tests
-COPY kernels ./kernels
-COPY scripts ./scripts
+# The WHOLE repository, minus what `.dockerignore` excludes.
+#
+# An earlier version copied a hand-listed subset -- pyproject, src, tests, kernels, scripts -- and
+# the in-image test run would have failed on five paths that were not in the list: `.gitattributes`,
+# `docs/`, `container/`, `experiments/` and `EXPERT_REVIEW_BACKLOG.md`. Several tests read repo
+# files (the deviations ledger, the container definition, the line-ending policy), so a subset copy
+# means the suite inside the image tests something other than the repository. Listing what to
+# INCLUDE was the wrong default; `.dockerignore` lists what to leave out, and
+# `test_the_image_contains_everything_the_suite_reads` fails if the two drift apart.
+COPY . .
 
-# `--locked` and not `--frozen`: the lock file must already satisfy the manifest, and a build that
-# would have had to re-resolve fails instead of quietly resolving something else.
+# NO uv.lock EXISTS YET, and the consequence is stated rather than left to be discovered:
+# `numeric_environment.uv_lock_sha256` comes out EMPTY, so the Tier-A predicate does not currently
+# pin the dependency set. That is a real weakness in the Tier-A story -- two images built a month
+# apart could resolve different wheels and still produce the same predicate. ADR-014 wants the
+# lock; generating it needs uv, which is not installed on the machine that wrote this. Recorded in
+# container/digests.json.
+#
+# `--locked` and not `--frozen` for when one does exist: the lock must already satisfy the
+# manifest, and a build that would have had to re-resolve fails instead of quietly resolving
+# something else.
 RUN set -eux; \
     if [ -f uv.lock ]; then uv sync --locked --all-extras; \
     else uv venv && uv pip install -e ".[dev,spice]"; fi
@@ -97,5 +110,9 @@ ENV OMP_NUM_THREADS=1 \
 # different libm is at least VISIBLE as a different predicate; that is weaker than making two CPUs
 # agree, and the difference is the point. Tracked as DEV-23.
 
-ENTRYPOINT ["uv", "run", "--"]
+# The environment is on PATH rather than reached through `uv run`. `uv run` re-checks the project
+# before every invocation, which is a resolution step inside a container whose whole claim is that
+# its contents were fixed at build time -- and it is a failure mode at run time for something that
+# should have failed at build time if it were going to.
+ENV PATH="/farsight/.venv/bin:${PATH}"
 CMD ["python", "-c", "import farsight; print(farsight.__file__)"]

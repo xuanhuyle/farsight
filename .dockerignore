@@ -1,0 +1,26 @@
+# The build context, trimmed. This is a determinism control, not a size optimization.
+#
+# `COPY src ./src` would otherwise carry this machine's __pycache__ into an image whose entire
+# purpose is that its contents are a function of its inputs. Compiled bytecode is a function of
+# the interpreter that happened to run here, and the container installs its own.
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+
+# `.git/` goes -- it is large and the tests that need it guard for its absence.
+# `.gitattributes` STAYS: test_the_golden_is_protected_from_line_ending_conversion
+# reads it, and the line-ending policy is exactly the kind of thing that must hold
+# inside the image too.
+.git/
+.github/
+
+# Local state that is not the image's business.
+out/
+htmlcov/
+.coverage

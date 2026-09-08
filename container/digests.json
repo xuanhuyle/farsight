@@ -11,7 +11,6 @@
     "cannot measure is a predicate we cannot enforce'. `container/build.sh` prints the measured",
     "value at the end of a successful build; that is what goes here. Tracked as DEV-24."
   ],
-
   "base_image": {
     "reference": "debian:bookworm-slim",
     "index_digest": "sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171",
@@ -28,7 +27,6 @@
       "OCI digest keeps the spelling its own ecosystem uses."
     ]
   },
-
   "apt": {
     "snapshot": "20260901T000000Z",
     "archives": [
@@ -46,17 +44,24 @@
       "ACTUALLY resolved, which is a measurement and needs a build."
     ]
   },
-
   "toolchain": {
     "uv_version": "0.5.11",
     "python_version": "3.12.8",
-    "note": "The interpreter is uv's, not the base image's (ADR-019 decision 1, ADR-014)."
+    "note": [
+      "The interpreter is uv's, not the base image's (ADR-019 decision 1, ADR-014).",
+      "",
+      "NO uv.lock EXISTS. The consequence is concrete and belongs here rather than in a comment:",
+      "`numeric_environment.uv_lock_sha256` is the empty string, so the Tier-A predicate does NOT",
+      "pin the dependency set. Two images built a month apart could resolve different wheels and",
+      "still produce the same predicate -- which is the one thing the predicate is for. The image",
+      "falls back to `uv pip install -e` when the lock is absent, so it builds; it is the CLAIM that",
+      "is weakened, not the build."
+    ],
+    "uv_lock": null
   },
-
   "numeric_environment_hash": null,
   "accepted_image_digests": [],
   "build_manifest_hash": null,
-
   "measurement_status": {
     "state": "unmeasured",
     "reason": "no container runtime on the build host: Intel VT-x is disabled in firmware, so WSL2 cannot start and neither Docker nor podman can run",
@@ -64,7 +69,8 @@
     "what_is_not_claimed": [
       "that the image builds",
       "that the image reproduces channel hashes bitwise",
-      "any Tier-A claim whatsoever -- the predicate is unmeasured, so no run can be Tier A"
+      "any Tier-A claim whatsoever -- the predicate is unmeasured, so no run can be Tier A",
+      "that the dependency set is pinned -- there is no uv.lock, so uv_lock_sha256 is empty"
     ]
   }
 }

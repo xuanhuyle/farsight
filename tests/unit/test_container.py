@@ -234,3 +234,106 @@ def test_the_engine_fingerprint_is_asked_of_the_adapter():
         "environment.py imports spiceypy directly; ask farsight.engines.spice.build instead"
     )
     assert (REPO / "src" / "farsight" / "engines" / "spice" / "build.py").exists()
+
+
+def test_build_sh_is_executable_in_git():
+    """The bit Windows does not track, and CI needs.
+
+    `chmod +x` on a Windows checkout changes nothing Git records, so `build.sh` went to the
+    repository as mode 100644 and the container job died with `Permission denied` (exit 126)
+    before it built anything. Setting it needs `git update-index --chmod=+x`, and nothing but this
+    test would notice it being lost again -- least of all a developer on Windows, where the mode
+    is invisible.
+    """
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "ls-files", "-s", "container/build.sh"],
+        capture_output=True, text=True, cwd=REPO, check=False,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        pytest.skip("not a git checkout")
+
+    mode = result.stdout.split()[0]
+    assert mode == "100755", (
+        f"container/build.sh is mode {mode} in the index, not 100755. CI runs it as "
+        f"`./container/build.sh` and a non-executable file fails with exit 126 before the build "
+        f"starts. Fix with: git update-index --chmod=+x container/build.sh"
+    )
+
+
+def test_the_image_contains_everything_the_suite_reads():
+    """The image must hold the repository the tests believe they are running against.
+
+    The CI container job runs the full suite INSIDE the image. An earlier Dockerfile copied a
+    hand-listed subset, and five paths the suite reads were not on it -- `.gitattributes`,
+    `docs/`, `container/`, `experiments/` and `EXPERT_REVIEW_BACKLOG.md`. Every test touching them
+    would have failed in-image for a reason with nothing to do with the container.
+
+    So this computes the paths the suite actually reads and checks none is excluded from the build
+    context. Nobody has to remember to update a list.
+    """
+    import fnmatch
+
+    read_paths: set[str] = set()
+    for path in sorted((REPO / "tests" / "unit").glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        read_paths.update(re.findall(r'REPO\s*/\s*"([^"]+)"', text))
+        if '".gitattributes"' in text:
+            read_paths.add(".gitattributes")
+    assert read_paths, "found no repo-relative reads; the extraction pattern has drifted"
+
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    assert re.search(r"^COPY \. \.$", dockerfile, re.MULTILINE), (
+        "the Dockerfile no longer copies the whole context, so the include list and the paths the "
+        "suite reads can drift apart again"
+    )
+
+    patterns = [ln.strip().rstrip("/") for ln in (REPO / ".dockerignore").read_text(encoding="utf-8")
+                .splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    excluded = sorted(
+        p for p in read_paths
+        if any(fnmatch.fnmatch(p, pat) or p == pat or p.startswith(pat + "/") for pat in patterns)
+    )
+    assert not excluded, (
+        f"the suite reads {excluded}, which .dockerignore excludes from the build context. Those "
+        f"tests would fail inside the image for a reason unrelated to the container"
+    )
+
+
+def test_every_copy_source_exists_in_the_build_context():
+    """A pre-flight the build itself would otherwise be the only way to run.
+
+    `build.sh` passes the REPOSITORY ROOT as the build context, so every `COPY` source is resolved
+    from there -- not from `container/`. `COPY packages.txt` therefore named a file that does not
+    exist at the root, and the build would have died at that step. It was invisible locally
+    because no container runtime exists on the machine that wrote it.
+
+    Checking the sources against the context is cheap, needs no Docker, and is the difference
+    between finding this in a second and finding it in a CI round trip.
+    """
+    import fnmatch
+
+    ignore = [ln.strip().rstrip("/") for ln in (REPO / ".dockerignore").read_text(encoding="utf-8")
+              .splitlines() if ln.strip() and not ln.strip().startswith("#")]
+
+    missing: list[str] = []
+    for line in DOCKERFILE.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped.upper().startswith("COPY "):
+            continue
+        parts = [p for p in stripped.split()[1:] if not p.startswith("--")]
+        if len(parts) < 2:
+            continue
+        for source in parts[:-1]:            # the last token is the destination
+            if source == "." or "*" in source:
+                continue                      # whole context, or a glob that may match nothing
+            if not (REPO / source).exists():
+                missing.append(source)
+            elif any(fnmatch.fnmatch(source, pat) or source.startswith(pat + "/") for pat in ignore):
+                missing.append(f"{source} (excluded by .dockerignore)")
+
+    assert not missing, (
+        f"COPY sources absent from the build context (the repository root, which is what "
+        f"build.sh passes): {missing}"
+    )
