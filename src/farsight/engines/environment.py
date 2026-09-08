@@ -165,10 +165,26 @@ def mapped_libraries() -> list[dict[str, Any]]:
 
 
 def _isa_features() -> list[str]:
-    """The features NumPy's dispatcher reports as enabled.
+    """What the CPU supports, as NumPy sees it -- NOT what NumPy's dispatcher will use.
 
-    NumPy's view, and labelled as such: it is what NumPy was told, and NumPy is not what computes
-    the geometry. See :data:`ISA_RESIDUE`.
+    MEASURED 2026-09-08, correcting what this docstring said before. `__cpu_features__` reports
+    CPU CAPABILITY and does not respond to `NPY_DISABLE_CPU_FEATURES` at all: with the variable
+    unset, set to `AVX2 FMA3`, and set to a name that does not exist, all three report the same
+    features. See `docs/measurements/numpy-isa-pin.md`.
+
+    Two consequences, and the field name `isa_enabled_features` is now wrong about both.
+
+    It cannot be used to check whether the ISA pin worked -- an earlier reading in this project
+    inferred exactly that from AVX-512 appearing on a new runner, and the inference does not
+    hold; the features appear because the silicon has them.
+
+    And because it is part of the hashed environment document, the Tier-A predicate is bound to
+    CPU IDENTITY by construction: it changes when the machine changes, whether or not any
+    number does. That is stricter than ADR-006's "same CPU ISA feature set" needs to be, and it
+    is why two GitHub runners of different generations produce two different predicates. The
+    field is NOT renamed here: it is inside the hashed document, so renaming it moves every
+    recorded predicate, which is a re-golding decision under ADR-019 decision 5 and belongs to
+    that record's owner. See :data:`ISA_RESIDUE`.
     """
     try:
         import numpy as np

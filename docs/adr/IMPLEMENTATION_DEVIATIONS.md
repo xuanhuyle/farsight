@@ -1168,7 +1168,51 @@ generations and comparing channel hashes — which is also what would show wheth
 helps. ADR-019's ENV-2 already carries the residue that a homogeneous fleet makes that job green
 while testing nothing.
 
-**Status:** Open, and this is the largest unclosed hole in the Tier-A story.
+**Update 2026-09-08 -- two premises measured; one of them was wrong.**
+
+**The `NPY_DISABLE_CPU_FEATURES` half of ADR-019 decision 3 is inoperative on its own terms.** Not
+insufficient for libm, which is what this entry was opened about -- inoperative. NumPy dispatches
+on psABI GROUP targets (`__cpu_baseline__ = ['X86_V2']`, `__cpu_dispatch__ = ['X86_V3']`), and all
+six names in `ISA_ENV` are individual feature names, so NumPy rejects every one of them:
+
+    You cannot disable CPU features (AVX2), since they are not part of the
+    dispatched optimizations (X86_V3).
+
+That rejection is an `ImportWarning`, which CPython hides by default, so the failing pin and a
+working pin are the same observation: silence. A name that does not exist at all produced no
+warning either. ADR-019 recorded these names as UNVERIFIED; they are now verified as not working.
+Full probe in `docs/measurements/numpy-isa-pin.md`, and the same measurement now runs inside the
+image on every container CI run and lands in `out/gate.json`.
+
+**The sentence above -- "while `isa_enabled_features` reports the same list" -- is wrong.** That
+field comes from `__cpu_features__`, which reports CPU CAPABILITY and does not respond to
+`NPY_DISABLE_CPU_FEATURES` under any setting tested. Two generations therefore report DIFFERENT
+lists, measured on the same repository state on the same day:
+
+    X86_V2, X86_V3               0 AVX-512 features   5754c374...
+    X86_V2, X86_V3, X86_V4      14 AVX-512 features   2c6f6b81...
+
+So ADR-019's 0.78-confidence falsifier -- a bitwise mismatch between two environments whose
+predicates AGREE -- is harder to reach than this entry assumed, because the predicate moves first.
+That is not a smaller problem, it is a different one: the predicate is bound to CPU identity by
+construction and refuses on a machine change whether or not a number changed, which makes the
+container job's outcome a function of which runner GitHub allocated. GitHub's `ubuntu-latest`
+fleet served both generations to this repository inside fifteen minutes.
+
+**A correction to this project's own earlier reading.** When the two predicates first disagreed,
+the diff showing 14 new AVX-512 entries was read as evidence that the ISA pin had not taken
+effect. That inference was invalid -- the field would show those features either way. The
+conclusion survives, on the measurement above instead.
+
+**Nothing here closes this entry.** Whether the GEOMETRY moves across the two generations is still
+unmeasured. The only X86_V4 run so far aborted at predicate enforcement before the gate, and
+before that the gate was executing nothing at all (DEV-20, fourth update). The container job has
+been reordered to run the gate first, so the next X86_V4 allocation records channel hashes and the
+comparison becomes possible without arranging anything.
+
+**Status:** Open, and this is the largest unclosed hole in the Tier-A story. The ISA pin is now known to be
+inoperative and the predicate to over-fire on CPU identity; the cross-CPU geometry comparison
+that would actually close this remains unrun.
 
 
 ## DEV-24 — RESOLVED: the Tier-A predicate is measured, and CI enforces it
