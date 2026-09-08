@@ -146,6 +146,9 @@ jobs:
         # identical channel hashes. The synthetic-SPK design is used because it needs no download;
         # the real-Psyche leg needs 46 MiB of kernels this job does not fetch.
         run: |
+          # podman does not create a bind-mount source directory; docker does. Creating it here
+          # rather than relying on the runtime is one less thing that differs between builders.
+          mkdir -p out
           $FARSIGHT_BUILDER run --rm -v "$PWD/out:/out" farsight-reference:ci python - <<'EOF'
           import json, sys, tempfile
           from pathlib import Path
