@@ -167,29 +167,32 @@
     ],
     "uv_lock": "9ca0b47cf841e3a0ee0309767e66c1704ab42b23e7852d29fc46fa8738e9d67e"
   },
-  "numeric_environment_hash": "3e63163eb56ec62761fa4044076169936d3bd67807257b7d84a5a82135118858",
+  "numeric_environment_hash": "ce87e66fc4efda0eff8b71632d8dff190f55ad97b3a1dfa5597f8092765e82f7",
   "accepted_image_digests": [],
   "build_manifest_hash": null,
   "measurement_status": {
     "state": "measured",
     "measured_on": "2026-09-08",
     "measured_by": "the `container` CI job (GitHub Actions, ubuntu-latest, podman 4.9.3)",
-    "run": "https://github.com/xuanhuyle/farsight/actions/runs/34239183827",
+    "run": "https://github.com/xuanhuyle/farsight/actions/runs/34250079791",
     "reproducibility": "two builds, the second --no-cache, produced byte-identical documents",
-    "regolded_from": "5754c3748638a8d2ae56da793bf8fd4f40c51c69d2a60488987d6cd3bde78035",
+    "regolded_from": "3e63163eb56ec62761fa4044076169936d3bd67807257b7d84a5a82135118858",
     "regolded_because": [
-      "ADR-019 decision 5: a changed reference environment is a decision somebody makes.",
-      "The founder decided on 2026-09-08 to fix the ISA pin, which changes `isa_env`, and the",
-      "verification that fix required adds `isa_dispatch_selected` to the document. Both are",
-      "inside the hashed half, so the predicate moved for a reason that is written down.",
-      "The value was NOT computed here: it was measured by the run above, and recomputed from",
-      "that run's archived artifact rather than copied out of its log."
+      "DEV-25: the document is now an ADR-001 envelope at numeric_environment/2, and CPU",
+      "capability (`isa_enabled_features`) moved to the unhashed provenance half. It was",
+      "refusing environments that computed identical numbers -- two runners differing in that",
+      "field and nothing else produced byte-identical channel hashes.",
+      "The value was measured by the run above and recomputed from that run's archived",
+      "artifact. The property was then checked against real data rather than asserted: the",
+      "OTHER machine's 38-feature capability list, grafted into this document's provenance,",
+      "leaves the predicate at ce87e66f unchanged."
     ],
     "what_is_still_not_claimed": [
-      "that the ISA pin has been shown to CHANGE anything: the run that re-golded this was allocated X86_V3 silicon, where X86_V3 is selected with or without the pin. What is shown is that NumPy ACCEPTS the names -- it rejected the previous six -- and that the selection sits at the declared baseline. The pin's effect is observable only on silicon that could dispatch above it, and no such run has happened yet",
-      "any cross-CPU claim: DEV-23 records that the ISA pins do not reach glibc's libm, which is the path SPICE geometry actually uses, and no two-CPU measurement exists",
+      "that this predicate has been OBSERVED equal on two machines: it has been shown invariant under the other machine's recorded capability list, which is the property that matters, but no second runner has yet built at numeric_environment/2",
+      "that the ISA pin CHANGES anything: every run since the fix landed on silicon that selects X86_V3 with or without it. NumPy accepts the names -- it rejected the previous six -- and the gate refuses if the selection ever rises above the declared baseline",
+      "any cross-CPU claim about the geometry beyond the two shapes compared in DEV-25: one design, four channels, and the X86_V4 runner never produced channel hashes",
       "any cross-OS claim: ADR-006 forecloses one, and `mapped_libraries` refuses off Linux",
-      "that this predicate has been checked on a second runner shape -- it has not"
+      "that DEV-23 is affected. glibc's libm is the path SPICE geometry uses, no ISA pin reaches it, and a narrower predicate makes such a mismatch reachable rather than gone"
     ]
   },
   "accepted_image_digests_note": [

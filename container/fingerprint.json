@@ -1,175 +1,163 @@
 {
-  "blas": {
-    "coretype": "Haswell",
-    "library_path": "/opt/_internal/cpython-3.12.12/lib/python3.12/site-packages/scipy_openblas64/lib",
-    "name": "scipy-openblas",
-    "version": "0.3.31.188.0"
+  "object": {
+    "blas": {
+      "coretype": "Haswell",
+      "library_path": "/opt/_internal/cpython-3.12.12/lib/python3.12/site-packages/scipy_openblas64/lib",
+      "name": "scipy-openblas",
+      "version": "0.3.31.188.0"
+    },
+    "engine_build_ids": [
+      "e0d0c109b9797f6dda769485cca530d77a7d0a8bf7f8fa526e690c2399e8b851"
+    ],
+    "interpreter": {
+      "binary_sha256": "efd84018e2568d7338abc5cf086f7d6b9f5245ab63433f349259d833162b50c8",
+      "version": "3.12.8"
+    },
+    "isa_baseline": "x86-64-v3",
+    "isa_dispatch_selected": [
+      "X86_V3"
+    ],
+    "isa_env": {
+      "NPY_DISABLE_CPU_FEATURES": "X86_V4 AVX512_ICL AVX512_SPR",
+      "OPENBLAS_CORETYPE": "Haswell"
+    },
+    "mapped_libraries": [
+      {
+        "path": "/farsight/.venv/lib/python3.12/site-packages/numpy.libs/libgfortran-040039e1-0352e75f.so.5.0.0",
+        "sha256": "c6090048eccc763522c12ef016f81da6b627cb3a044f55cf0479a839c41c0980",
+        "size_bytes": 2833617,
+        "soname": "libgfortran-040039e1-0352e75f.so.5.0.0"
+      },
+      {
+        "path": "/farsight/.venv/lib/python3.12/site-packages/numpy.libs/libquadmath-96973f99-934c22de.so.0.0.0",
+        "sha256": "6ed5137f412781ad7863439fb543613f620b43c32b63292a0029246162f5bbc6",
+        "size_bytes": 250985,
+        "soname": "libquadmath-96973f99-934c22de.so.0.0.0"
+      },
+      {
+        "path": "/farsight/.venv/lib/python3.12/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
+        "sha256": "05c9f9eb89ee68a4b9d673184fa91c99587e736392c0c2d49180a8aa5303d080",
+        "size_bytes": 25409073,
+        "soname": "libscipy_openblas64_-32a4b2a6.so"
+      },
+      {
+        "path": "/farsight/.venv/lib/python3.12/site-packages/numpy/_core/_multiarray_umath.cpython-312-x86_64-linux-gnu.so",
+        "sha256": "2bd8ea4ada756eb29d34bcb5049df8d48710721b57c2c23cbdd87d77cdf5fa77",
+        "size_bytes": 10456833,
+        "soname": "_multiarray_umath.cpython-312-x86_64-linux-gnu.so"
+      },
+      {
+        "path": "/farsight/.venv/lib/python3.12/site-packages/numpy/linalg/_umath_linalg.cpython-312-x86_64-linux-gnu.so",
+        "sha256": "d826c92d6a98bda58ddb2f5a6f086d9581937538c2c2aef5b8879ed43282b995",
+        "size_bytes": 231785,
+        "soname": "_umath_linalg.cpython-312-x86_64-linux-gnu.so"
+      },
+      {
+        "path": "/farsight/.venv/lib/python3.12/site-packages/spiceypy/utils/libcspice.so",
+        "sha256": "e0d0c109b9797f6dda769485cca530d77a7d0a8bf7f8fa526e690c2399e8b851",
+        "size_bytes": 3443648,
+        "soname": "libcspice.so"
+      },
+      {
+        "path": "/opt/python/cpython-3.12.8-linux-x86_64-gnu/lib/libpython3.12.so.1.0",
+        "sha256": "d966fb7ceed5bc8a6a0b8cb3a6aa7096faaa0f059fc17bca8636557307d09c59",
+        "size_bytes": 39593656,
+        "soname": "libpython3.12.so.1.0"
+      },
+      {
+        "path": "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+        "sha256": "02bcda52c1a5dfc236f94d9e5255b4a0e26347d8a372a5223b650e31f291ce3c",
+        "size_bytes": 215000,
+        "soname": "ld-linux-x86-64.so.2"
+      },
+      {
+        "path": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+        "sha256": "6b4a45352fd0c540a9c7c718f35ce8c8e46a4e482f9d3885a910c32d1a0e1421",
+        "size_bytes": 1926232,
+        "soname": "libc.so.6"
+      },
+      {
+        "path": "/usr/lib/x86_64-linux-gnu/libdl.so.2",
+        "sha256": "95d521b2c39fd0333271b6fdcdddff878ae82001a304313a837b8e728ebe3cb1",
+        "size_bytes": 14480,
+        "soname": "libdl.so.2"
+      },
+      {
+        "path": "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
+        "sha256": "2bd1552c47799ef67e701e81d4383061fd76059868e446e63560f0dd0d5ec14e",
+        "size_bytes": 125312,
+        "soname": "libgcc_s.so.1"
+      },
+      {
+        "path": "/usr/lib/x86_64-linux-gnu/libm.so.6",
+        "sha256": "7f2ca87f652f56b094462474b076749e90e689d0ecb9cb63c7679820b271b4e7",
+        "size_bytes": 911904,
+        "soname": "libm.so.6"
+      },
+      {
+        "path": "/usr/lib/x86_64-linux-gnu/libpthread.so.0",
+        "sha256": "b93a680da8a05b939b235c1533572e7a2f6d3d8808bf70209997edc64ea5fedc",
+        "size_bytes": 14480,
+        "soname": "libpthread.so.0"
+      },
+      {
+        "path": "/usr/lib/x86_64-linux-gnu/librt.so.1",
+        "sha256": "41c72def458b8cfb6aab96a7dbada7454dd216d89aac65fb085eb52bead51def",
+        "size_bytes": 14640,
+        "soname": "librt.so.1"
+      },
+      {
+        "path": "/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.30",
+        "sha256": "e7848e32af4932840ba775169041759a2a8dd5a008af360e5c55bce506eebcf4",
+        "size_bytes": 2190440,
+        "soname": "libstdc++.so.6.0.30"
+      },
+      {
+        "path": "/usr/lib/x86_64-linux-gnu/libutil.so.1",
+        "sha256": "bc5d8f67c3b3c6eea14e9d9f389cd4bc6034e4db9314849d7d5a5d756df0a9ca",
+        "size_bytes": 14480,
+        "soname": "libutil.so.1"
+      },
+      {
+        "path": "/usr/lib/x86_64-linux-gnu/libz.so.1.2.13",
+        "sha256": "7e2a72b4c4b38c61e6962de6e3f4a5e9ae692e732c68deead10a7ce2135a7f68",
+        "size_bytes": 121280,
+        "soname": "libz.so.1.2.13"
+      }
+    ],
+    "schema_version": "numeric_environment/2",
+    "thread_env": {
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1"
+    },
+    "uv_lock_sha256": "9ca0b47cf841e3a0ee0309767e66c1704ab42b23e7852d29fc46fa8738e9d67e"
   },
-  "engine_build_ids": [
-    "e0d0c109b9797f6dda769485cca530d77a7d0a8bf7f8fa526e690c2399e8b851"
-  ],
-  "interpreter": {
-    "binary_sha256": "efd84018e2568d7338abc5cf086f7d6b9f5245ab63433f349259d833162b50c8",
-    "version": "3.12.8"
-  },
-  "isa_baseline": "x86-64-v3",
-  "isa_dispatch_selected": [
-    "X86_V3"
-  ],
-  "isa_enabled_features": [
-    "AVX",
-    "AVX2",
-    "AVX512BF16",
-    "AVX512BITALG",
-    "AVX512BW",
-    "AVX512CD",
-    "AVX512DQ",
-    "AVX512F",
-    "AVX512FP16",
-    "AVX512IFMA",
-    "AVX512VBMI",
-    "AVX512VBMI2",
-    "AVX512VL",
-    "AVX512VNNI",
-    "AVX512VPOPCNTDQ",
-    "AVX512_CLX",
-    "AVX512_CNL",
-    "BMI",
-    "BMI2",
-    "CX16",
-    "F16C",
-    "FMA3",
-    "GFNI",
-    "LAHF",
-    "LZCNT",
-    "MMX",
-    "MOVBE",
-    "POPCNT",
-    "SSE",
-    "SSE2",
-    "SSE3",
-    "SSE41",
-    "SSE42",
-    "SSSE3",
-    "VAES",
-    "VPCLMULQDQ",
-    "X86_V2",
-    "X86_V3"
-  ],
-  "isa_env": {
-    "NPY_DISABLE_CPU_FEATURES": "X86_V4 AVX512_ICL AVX512_SPR",
-    "OPENBLAS_CORETYPE": "Haswell"
-  },
-  "mapped_libraries": [
-    {
-      "path": "/farsight/.venv/lib/python3.12/site-packages/numpy.libs/libgfortran-040039e1-0352e75f.so.5.0.0",
-      "sha256": "c6090048eccc763522c12ef016f81da6b627cb3a044f55cf0479a839c41c0980",
-      "size_bytes": 2833617,
-      "soname": "libgfortran-040039e1-0352e75f.so.5.0.0"
-    },
-    {
-      "path": "/farsight/.venv/lib/python3.12/site-packages/numpy.libs/libquadmath-96973f99-934c22de.so.0.0.0",
-      "sha256": "6ed5137f412781ad7863439fb543613f620b43c32b63292a0029246162f5bbc6",
-      "size_bytes": 250985,
-      "soname": "libquadmath-96973f99-934c22de.so.0.0.0"
-    },
-    {
-      "path": "/farsight/.venv/lib/python3.12/site-packages/numpy.libs/libscipy_openblas64_-32a4b2a6.so",
-      "sha256": "05c9f9eb89ee68a4b9d673184fa91c99587e736392c0c2d49180a8aa5303d080",
-      "size_bytes": 25409073,
-      "soname": "libscipy_openblas64_-32a4b2a6.so"
-    },
-    {
-      "path": "/farsight/.venv/lib/python3.12/site-packages/numpy/_core/_multiarray_umath.cpython-312-x86_64-linux-gnu.so",
-      "sha256": "2bd8ea4ada756eb29d34bcb5049df8d48710721b57c2c23cbdd87d77cdf5fa77",
-      "size_bytes": 10456833,
-      "soname": "_multiarray_umath.cpython-312-x86_64-linux-gnu.so"
-    },
-    {
-      "path": "/farsight/.venv/lib/python3.12/site-packages/numpy/linalg/_umath_linalg.cpython-312-x86_64-linux-gnu.so",
-      "sha256": "d826c92d6a98bda58ddb2f5a6f086d9581937538c2c2aef5b8879ed43282b995",
-      "size_bytes": 231785,
-      "soname": "_umath_linalg.cpython-312-x86_64-linux-gnu.so"
-    },
-    {
-      "path": "/farsight/.venv/lib/python3.12/site-packages/spiceypy/utils/libcspice.so",
-      "sha256": "e0d0c109b9797f6dda769485cca530d77a7d0a8bf7f8fa526e690c2399e8b851",
-      "size_bytes": 3443648,
-      "soname": "libcspice.so"
-    },
-    {
-      "path": "/opt/python/cpython-3.12.8-linux-x86_64-gnu/lib/libpython3.12.so.1.0",
-      "sha256": "d966fb7ceed5bc8a6a0b8cb3a6aa7096faaa0f059fc17bca8636557307d09c59",
-      "size_bytes": 39593656,
-      "soname": "libpython3.12.so.1.0"
-    },
-    {
-      "path": "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
-      "sha256": "02bcda52c1a5dfc236f94d9e5255b4a0e26347d8a372a5223b650e31f291ce3c",
-      "size_bytes": 215000,
-      "soname": "ld-linux-x86-64.so.2"
-    },
-    {
-      "path": "/usr/lib/x86_64-linux-gnu/libc.so.6",
-      "sha256": "6b4a45352fd0c540a9c7c718f35ce8c8e46a4e482f9d3885a910c32d1a0e1421",
-      "size_bytes": 1926232,
-      "soname": "libc.so.6"
-    },
-    {
-      "path": "/usr/lib/x86_64-linux-gnu/libdl.so.2",
-      "sha256": "95d521b2c39fd0333271b6fdcdddff878ae82001a304313a837b8e728ebe3cb1",
-      "size_bytes": 14480,
-      "soname": "libdl.so.2"
-    },
-    {
-      "path": "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
-      "sha256": "2bd1552c47799ef67e701e81d4383061fd76059868e446e63560f0dd0d5ec14e",
-      "size_bytes": 125312,
-      "soname": "libgcc_s.so.1"
-    },
-    {
-      "path": "/usr/lib/x86_64-linux-gnu/libm.so.6",
-      "sha256": "7f2ca87f652f56b094462474b076749e90e689d0ecb9cb63c7679820b271b4e7",
-      "size_bytes": 911904,
-      "soname": "libm.so.6"
-    },
-    {
-      "path": "/usr/lib/x86_64-linux-gnu/libpthread.so.0",
-      "sha256": "b93a680da8a05b939b235c1533572e7a2f6d3d8808bf70209997edc64ea5fedc",
-      "size_bytes": 14480,
-      "soname": "libpthread.so.0"
-    },
-    {
-      "path": "/usr/lib/x86_64-linux-gnu/librt.so.1",
-      "sha256": "41c72def458b8cfb6aab96a7dbada7454dd216d89aac65fb085eb52bead51def",
-      "size_bytes": 14640,
-      "soname": "librt.so.1"
-    },
-    {
-      "path": "/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.30",
-      "sha256": "e7848e32af4932840ba775169041759a2a8dd5a008af360e5c55bce506eebcf4",
-      "size_bytes": 2190440,
-      "soname": "libstdc++.so.6.0.30"
-    },
-    {
-      "path": "/usr/lib/x86_64-linux-gnu/libutil.so.1",
-      "sha256": "bc5d8f67c3b3c6eea14e9d9f389cd4bc6034e4db9314849d7d5a5d756df0a9ca",
-      "size_bytes": 14480,
-      "soname": "libutil.so.1"
-    },
-    {
-      "path": "/usr/lib/x86_64-linux-gnu/libz.so.1.2.13",
-      "sha256": "7e2a72b4c4b38c61e6962de6e3f4a5e9ae692e732c68deead10a7ce2135a7f68",
-      "size_bytes": 121280,
-      "soname": "libz.so.1.2.13"
-    }
-  ],
-  "schema_version": "numeric_environment/1",
-  "thread_env": {
-    "MKL_NUM_THREADS": "1",
-    "NUMEXPR_NUM_THREADS": "1",
-    "OMP_NUM_THREADS": "1",
-    "OPENBLAS_NUM_THREADS": "1"
-  },
-  "uv_lock_sha256": "9ca0b47cf841e3a0ee0309767e66c1704ab42b23e7852d29fc46fa8738e9d67e"
+  "provenance": {
+    "isa_enabled_features": [
+      "AVX",
+      "AVX2",
+      "BMI",
+      "BMI2",
+      "CX16",
+      "F16C",
+      "FMA3",
+      "LAHF",
+      "LZCNT",
+      "MMX",
+      "MOVBE",
+      "POPCNT",
+      "SSE",
+      "SSE2",
+      "SSE3",
+      "SSE41",
+      "SSE42",
+      "SSSE3",
+      "VAES",
+      "VPCLMULQDQ",
+      "X86_V2",
+      "X86_V3"
+    ]
+  }
 }

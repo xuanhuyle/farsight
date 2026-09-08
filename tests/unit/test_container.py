@@ -479,7 +479,7 @@ def test_the_recorded_document_hashes_to_the_recorded_predicate():
 
     The two must agree, or the record describes a document nobody has.
     """
-    from farsight.hashing.canonical import content_hash
+    from farsight.engines.environment import numeric_environment_hash
 
     doc = json.loads(DIGESTS.read_text(encoding="utf-8"))
     if doc["measurement_status"]["state"] != "measured":
@@ -490,10 +490,21 @@ def test_the_recorded_document_hashes_to_the_recorded_predicate():
         "container/fingerprint.json is missing, so a predicate mismatch cannot be diffed against "
         "anything and the recorded hash is a number with no document behind it"
     )
-    assert content_hash(json.loads(fingerprint.read_text(encoding="utf-8"))) == \
-        doc["numeric_environment_hash"], (
+    stored = json.loads(fingerprint.read_text(encoding="utf-8"))
+    # Through `numeric_environment_hash`, not `content_hash`: since DEV-25 the document is an
+    # ADR-001 envelope and only its `object` half is hashed. Hashing the whole file here would
+    # make this test disagree with what CI actually enforces, which is the one job it has.
+    assert numeric_environment_hash(stored) == doc["numeric_environment_hash"], (
         "the stored environment document does not hash to the recorded predicate; one of the two "
         "was updated without the other"
+    )
+    assert set(stored) == {"object", "provenance"}, (
+        "the recorded document is not an envelope, so the recorded predicate was taken over a "
+        "shape the code no longer produces"
+    )
+    assert "isa_enabled_features" not in stored["object"], (
+        "the recorded document carries CPU capability in its hashed half -- it was re-golded from "
+        "a build predating DEV-25, and pinning it would reintroduce the refusal"
     )
 
 
