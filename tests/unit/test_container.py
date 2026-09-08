@@ -247,10 +247,17 @@ def test_build_sh_is_executable_in_git():
     """
     import subprocess
 
-    result = subprocess.run(
-        ["git", "ls-files", "-s", "container/build.sh"],
-        capture_output=True, text=True, cwd=REPO, check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-s", "container/build.sh"],
+            capture_output=True, text=True, cwd=REPO, check=False,
+        )
+    except FileNotFoundError:
+        # The reference image has no git, and correctly so -- it is not in packages.txt, because
+        # the image installs what the evidence path needs and nothing else. The index mode is a
+        # property of the repository, and the repository is where it can be checked.
+        pytest.skip("no git binary (expected inside the reference image)")
+
     if result.returncode != 0 or not result.stdout.strip():
         pytest.skip("not a git checkout")
 

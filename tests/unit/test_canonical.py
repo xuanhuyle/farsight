@@ -303,9 +303,22 @@ def test_setting_pythonhashseed_at_runtime_does_not_disable_randomization():
     import os
     import sys
 
+    if sys.flags.hash_randomization == 0:
+        # This interpreter was STARTED with PYTHONHASHSEED set, which is what the reference
+        # container does deliberately (ADR-019 sets it in the image, not from Python). There is no
+        # hazard left to demonstrate here -- so assert the property that actually holds, which is
+        # the one the image exists to provide, and leave the demonstration to environments that
+        # have not pinned it.
+        assert os.environ.get("PYTHONHASHSEED") == "0", (
+            "hash randomization is off but PYTHONHASHSEED is not '0' in the environment; the "
+            "interpreter was started with a seed this process cannot account for"
+        )
+        return
+
     os.environ["PYTHONHASHSEED"] = "0"
     assert os.environ["PYTHONHASHSEED"] == "0"
     assert sys.flags.hash_randomization == 1, (
-        "hash randomization is off in this interpreter, so this test cannot demonstrate the "
-        "hazard; it was started with PYTHONHASHSEED already set in the environment"
+        "setting PYTHONHASHSEED at runtime appears to have disabled randomization, which would "
+        "mean CPython no longer reads it only at startup and the reasoning in the neighbouring "
+        "test needs revisiting"
     )
