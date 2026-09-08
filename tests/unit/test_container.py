@@ -289,8 +289,9 @@ def test_the_image_contains_everything_the_suite_reads():
         "suite reads can drift apart again"
     )
 
-    patterns = [ln.strip().rstrip("/") for ln in (REPO / ".dockerignore").read_text(encoding="utf-8")
-                .splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    ignore_text = (REPO / ".dockerignore").read_text(encoding="utf-8")
+    patterns = [ln.strip().rstrip("/") for ln in ignore_text.splitlines()
+                if ln.strip() and not ln.strip().startswith("#")]
     excluded = sorted(
         p for p in read_paths
         if any(fnmatch.fnmatch(p, pat) or p == pat or p.startswith(pat + "/") for pat in patterns)
@@ -328,9 +329,11 @@ def test_every_copy_source_exists_in_the_build_context():
         for source in parts[:-1]:            # the last token is the destination
             if source == "." or "*" in source:
                 continue                      # whole context, or a glob that may match nothing
+            hidden = any(fnmatch.fnmatch(source, pat) or source.startswith(pat + "/")
+                         for pat in ignore)
             if not (REPO / source).exists():
                 missing.append(source)
-            elif any(fnmatch.fnmatch(source, pat) or source.startswith(pat + "/") for pat in ignore):
+            elif hidden:
                 missing.append(f"{source} (excluded by .dockerignore)")
 
     assert not missing, (
