@@ -183,7 +183,8 @@ jobs:
             echo "MISMATCH. The reference environment changed."
             echo "This is a re-golding decision (ADR-019 decision 5), not a number to overwrite:"
             echo "read the diff, decide whether the change was intended, then update digests.json."
-            diff <(python -m json.tool fingerprint.json) <(python -m json.tool fingerprint2.json) || true
+            echo "--- what changed, field by field (recorded -> measured) ---"
+            diff <(python -m json.tool container/fingerprint.json)                  <(python -m json.tool fingerprint.json) || true
             exit 1
           fi
 
@@ -221,6 +222,9 @@ jobs:
         run: $FARSIGHT_BUILDER run --rm farsight-reference:ci python -m pytest tests/unit -q
 
       - uses: actions/upload-artifact@v4
+        # `always()`, because the run that MOST needs its fingerprints kept is the one that
+        # failed. Without this the artifacts are skipped exactly when a mismatch happened.
+        if: always()
         with:
           name: numeric-environment-fingerprint
           path: |

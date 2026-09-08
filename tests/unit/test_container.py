@@ -466,3 +466,46 @@ def test_the_recorded_predicate_is_actually_enforced():
         "environment a re-golding decision with a named owner, and nobody makes a decision that "
         "CI reports as green"
     )
+
+
+def test_the_recorded_document_hashes_to_the_recorded_predicate():
+    """`digests.json` records a HASH; `container/fingerprint.json` is the document it hashes.
+
+    Storing both is what makes a mismatch diagnosable. The CI enforcement step previously diffed
+    the two builds of the SAME run against each other -- identical by construction -- so a
+    mismatch against the recorded value printed nothing about what had changed. A failure nobody
+    can explain is one that gets overwritten rather than understood, which is precisely what that
+    step's own message tells the reader not to do.
+
+    The two must agree, or the record describes a document nobody has.
+    """
+    from farsight.hashing.canonical import content_hash
+
+    doc = json.loads(DIGESTS.read_text(encoding="utf-8"))
+    if doc["measurement_status"]["state"] != "measured":
+        pytest.skip("no predicate recorded yet")
+
+    fingerprint = CONTAINER / "fingerprint.json"
+    assert fingerprint.exists(), (
+        "container/fingerprint.json is missing, so a predicate mismatch cannot be diffed against "
+        "anything and the recorded hash is a number with no document behind it"
+    )
+    assert content_hash(json.loads(fingerprint.read_text(encoding="utf-8"))) == \
+        doc["numeric_environment_hash"], (
+        "the stored environment document does not hash to the recorded predicate; one of the two "
+        "was updated without the other"
+    )
+
+
+def test_a_predicate_mismatch_is_diffed_against_the_recorded_document():
+    """The enforcement step must compare the build to the RECORD, not to itself."""
+    import yaml
+
+    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"))
+    step = next(s["run"] for s in workflow["jobs"]["container"]["steps"]
+                if "RECORDED" in (s.get("run") or ""))
+    assert "container/fingerprint.json" in step, (
+        "the mismatch branch does not diff against the recorded document, so it cannot say what "
+        "changed -- diffing this run's two builds shows nothing, they agree by construction"
+    )
