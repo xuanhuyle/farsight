@@ -36,6 +36,8 @@ from farsight.schemas.channels import (
 from farsight.schemas.common import Quantity
 from farsight.schemas.geometry import ABERRATION_MEMBERS, Duration, Epoch, GeometryRequest
 
+from ._guards import python_sources
+
 REPO = Path(__file__).resolve().parents[2]
 
 
@@ -127,7 +129,7 @@ def test_no_literal_aberration_string_outside_the_module_that_defines_the_enum()
     members = set(ABERRATION_MEMBERS)
     offenders: list[str] = []
 
-    for path in sorted((REPO / "src" / "farsight").rglob("*.py")):
+    for path in python_sources():
         if path.resolve() == defining:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))

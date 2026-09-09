@@ -264,7 +264,7 @@ def test_only_the_cache_module_writes_to_the_cache():
     calls `write_atomic` with a cache path, and `farsight.acquire` reaches it through that method.
     """
     writers: list[str] = []
-    for path in sorted(SRC.rglob("*.py")):
+    for path in python_sources(SRC):
         rel = path.relative_to(SRC.parent.parent).as_posix().replace("src/farsight/", "")
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -306,7 +306,7 @@ def test_acquire_is_imported_only_by_the_cli_fetch_module():
     CLI's fetch subcommand is its only importer. That chain is what makes 'zero network calls in
     the truth loop' structural rather than a promise."""
     importers: list[str] = []
-    for path in sorted(SRC.rglob("*.py")):
+    for path in python_sources(SRC):
         rel = path.relative_to(SRC.parent.parent).as_posix().replace("src/farsight/", "")
         if rel.startswith("acquire/"):
             continue
@@ -326,6 +326,8 @@ def test_acquire_is_imported_only_by_the_cli_fetch_module():
 
 import json as _json
 import re
+
+from ._guards import python_sources
 
 MANIFEST = REPO / "kernels" / "pinned_kernels.json"
 

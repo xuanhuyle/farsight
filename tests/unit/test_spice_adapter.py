@@ -36,6 +36,8 @@ from farsight.engines.spice.kernels import (
 from farsight.registry.kernel_cache import KernelCache
 from farsight.schemas.kernels import KernelRef, KernelSet
 
+from ._guards import python_sources
+
 REPO = Path(__file__).resolve().parents[2]
 SRC = REPO / "src" / "farsight"
 FIXTURES = REPO / "tests" / "fixtures"
@@ -233,7 +235,7 @@ def test_furnsh_is_called_from_exactly_one_place():
     """ADR-016: one file at a time, never a metakernel. Asserted as EXACTLY one call site rather
     than at most one -- 'at most' passes when nothing calls it at all."""
     sites: list[str] = []
-    for path in sorted(SRC.rglob("*.py")):
+    for path in python_sources(SRC):
         rel = path.relative_to(SRC.parent.parent).as_posix().replace("src/farsight/", "")
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -252,7 +254,7 @@ def test_no_metakernel_syntax_appears_anywhere():
     content-addressed cache exists to remove."""
     forbidden = ("KERNELS_TO_LOAD", "PATH_VALUES", "PATH_SYMBOLS")
     offenders: list[str] = []
-    for path in sorted(SRC.rglob("*.py")):
+    for path in python_sources(SRC):
         rel = path.relative_to(SRC.parent.parent).as_posix()
         tree = ast.parse(path.read_text(encoding="utf-8"))
         # String LITERALS only, via the AST. The first version of this lint scanned raw text and

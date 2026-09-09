@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from ._guards import python_sources
+
 REPO = Path(__file__).resolve().parents[2]
 
 FORBIDDEN = [
@@ -171,7 +173,7 @@ def test_exception_hierarchy_closed():
     # defect was the lint's own blind spot. Detection and reporting are now separate: the
     # graph is complete, and only the exception-shaped nodes can be offenders.
     classes: dict[str, tuple[str, int, set[str]]] = {}
-    for path in sorted(src.rglob("*.py")):
+    for path in python_sources(src):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
@@ -249,7 +251,7 @@ def test_no_freeze_time_error_under_engines():  # noqa: PLR0912 - one rule, one 
     )
 
     violations: list[str] = []
-    for path in sorted((src / "engines").rglob("*.py")):
+    for path in python_sources(src / "engines", minimum=10):
         rel = path.relative_to(REPO).as_posix()
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -318,7 +320,7 @@ def test_determinism_rules():
     }
 
     found: dict[str, list[str]] = {}
-    for path in sorted(src.rglob("*.py")):
+    for path in python_sources(src):
         rel = path.relative_to(src).as_posix()
         if rel.startswith("analysis/"):
             continue

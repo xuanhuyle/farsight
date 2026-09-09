@@ -66,7 +66,17 @@ HASH="$("$BUILDER" run --rm "$IMAGE:$TAG" python -c \
 # now it did not -- a note describing behaviour the code did not have.
 APT_OUT="${FARSIGHT_APT_VERSIONS:-apt_versions.txt}"
 "$BUILDER" run --rm "$IMAGE:$TAG" \
-  sh -c 'dpkg-query -W -f="\${binary:Package}=\${Version}\n"' > "$APT_OUT" 2>/dev/null || true
+  sh -c 'dpkg-query -W -f="\${binary:Package}=\${Version}\n"' > "$APT_OUT"
+
+# `|| true` and `2>/dev/null` used to close that line, so a dpkg-query that failed produced an
+# EMPTY bill of materials, uploaded it as a CI artifact, and let every later step pass. DEV-22 and
+# digests.json both claim this file records what apt resolved. A file that silently records
+# nothing is worse than an absent one, because it is archived and looks like evidence.
+if [ ! -s "$APT_OUT" ]; then
+  echo "REFUSED: $APT_OUT is empty. dpkg-query produced no bill of materials, so the image's" >&2
+  echo "package set is unrecorded while DEV-22 and digests.json both say it is recorded." >&2
+  exit 1
+fi
 
 echo "numeric_environment_hash: $HASH"
 echo "document written to: $OUT"

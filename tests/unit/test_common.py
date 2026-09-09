@@ -31,6 +31,8 @@ from farsight.schemas.common import (
     validate_path,
 )
 
+from ._guards import python_sources
+
 # --------------------------------------------------------------------------------------
 # The decimal grammar
 # --------------------------------------------------------------------------------------
@@ -384,7 +386,7 @@ def test_nobody_hand_rolls_the_segment_check():
     repo = Path(__file__).resolve().parents[2]
     src = repo / "src" / "farsight"
     offenders: list[str] = []
-    for path in sorted(src.rglob("*.py")):
+    for path in python_sources(src):
         if path.name == "common.py":
             continue  # the module that defines the grammar is where it may be used directly
         tree = ast.parse(path.read_text(encoding="utf-8"))

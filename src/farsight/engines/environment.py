@@ -273,6 +273,58 @@ def _engine_build_ids(*, with_spice: bool) -> list[str]:
     return install_fingerprint()
 
 
+def _refuse_a_degraded_measurement(
+    obj: dict[str, Any], *, with_spice: bool, lock_exists: bool
+) -> None:
+    """A field that could not be MEASURED must not enter the predicate looking measured.
+
+    Every probe in this module falls back to a neutral value when its underlying API is missing or
+    renamed: `[]`, `""`, or `"unknown"`. That is the right shape for a probe and exactly the wrong
+    shape for a predicate. Two environments that both failed to read their BLAS would hash
+    IDENTICALLY, and the Tier-A promise is the converse -- equal predicates mean equal numbers.
+
+    ADR-019 decision 2 says it for the document as a whole: "a predicate we cannot measure is a
+    predicate we cannot enforce." This applies that sentence field by field, because the document
+    is assembled from five independent probes and any one of them can fail alone.
+
+    Found by a deliberate sweep on 2026-09-09 for code that reports success while doing nothing,
+    after three defects of that shape in one day. None of these had fired; all five could, and a
+    NumPy or spiceypy upgrade is the likeliest trigger.
+    """
+    missing = []
+    if not obj["isa_dispatch_selected"]:
+        missing.append(
+            "isa_dispatch_selected -- NumPy's dispatch introspection returned nothing, so the one "
+            "ISA fact that determines which kernels run is absent"
+        )
+    if not obj["interpreter"]["binary_sha256"]:
+        missing.append("interpreter.binary_sha256 -- the running interpreter could not be read")
+    if lock_exists and not obj["uv_lock_sha256"]:
+        missing.append("uv_lock_sha256 -- uv.lock is present and could not be read")
+    if obj["blas"]["name"] == "unknown":
+        missing.append(
+            "blas -- NumPy's build configuration could not be read, so two different BLAS builds "
+            "would produce the same predicate"
+        )
+    if with_spice and not obj["engine_build_ids"]:
+        missing.append(
+            "engine_build_ids -- with_spice=True and no CSPICE object was fingerprinted. Either "
+            "spiceypy is not installed, or it is installed and `install_fingerprint` matched no "
+            "file, which a rename of the bundled library would cause"
+        )
+    if missing:
+        raise EnvironmentUnavailable(
+            "this is not a Tier-A numeric environment: "
+            + str(len(missing))
+            + " field(s) could not be measured and would otherwise have been recorded as a "
+            "neutral value indistinguishable from a real one --\n  "
+            + "\n  ".join(missing)
+            + "\nADR-019 decision 2: a predicate we cannot measure is a predicate we cannot "
+            "enforce. Pass with_spice=False to measure an environment that genuinely has no "
+            "engine in it; every other item here is a defect to fix, not a state to record."
+        )
+
+
 def numeric_environment(*, with_spice: bool = True, uv_lock: Path | None = None) -> dict[str, Any]:
     """The ADR-019 document, measured in this process, in ADR-001's two-key envelope.
 
@@ -303,7 +355,7 @@ def numeric_environment(*, with_spice: bool = True, uv_lock: Path | None = None)
     lock = uv_lock if uv_lock is not None else Path(__file__).resolve().parents[3] / "uv.lock"
     lock_digest = _sha256_file(lock) if lock.exists() else ""
 
-    return {
+    document = {
         "object": {
             "schema_version": "numeric_environment/2",
             "isa_baseline": TIER_A_ISA_BASELINE,
@@ -325,6 +377,10 @@ def numeric_environment(*, with_spice: bool = True, uv_lock: Path | None = None)
             "isa_enabled_features": _isa_features(),
         },
     }
+    _refuse_a_degraded_measurement(
+        document["object"], with_spice=with_spice, lock_exists=lock.exists()
+    )
+    return document
 
 
 def numeric_environment_hash(document: dict[str, Any] | None = None, **kwargs: Any) -> str:

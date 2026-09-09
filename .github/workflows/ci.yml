@@ -65,6 +65,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[dev,spice]"
+
+      - name: the extra is actually installed
+        # THIS JOB'S ENTIRE PURPOSE CAN BE VOIDED IN SILENCE WITHOUT THIS STEP. Every
+        # spice-dependent module opens with `pytest.importorskip("spiceypy")`, so if the install
+        # above resolved nothing, pytest SKIPS all of them and reports success -- and the job
+        # whose own comment says those tests "would otherwise never run anywhere" becomes the
+        # place they do not run. Found by the 2026-09-09 sweep for checks that pass while doing
+        # nothing, alongside a container gate that had been running an empty program.
+        run: python -c "import spiceypy; print('CSPICE', spiceypy.tkvrsn('TOOLKIT'))"
+
       - name: spice adapter tests
         run: python -m pytest tests/unit -q
       - name: boundaries still hold with spiceypy installed

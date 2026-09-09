@@ -33,6 +33,8 @@ from farsight.experiments.seeding import (
     stream_rng,
 )
 
+from ._guards import python_sources
+
 REPO = Path(__file__).resolve().parents[2]
 SRC = REPO / "src" / "farsight"
 GOLDEN = REPO / "tests" / "golden" / "seed_derivation.json"
@@ -227,7 +229,7 @@ def test_os_urandom_appears_exactly_once_in_the_source_tree():
     """ADR-005 states this as a property of the codebase: `os.urandom` appears in exactly one
     function, `new_root_seed`. Asserted rather than trusted."""
     hits = []
-    for path in sorted(SRC.rglob("*.py")):
+    for path in python_sources(SRC):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if (
@@ -250,7 +252,7 @@ def test_no_naked_rng_anywhere_outside_seeding():
     """
     forbidden_roots = {"random", "secrets"}
     offenders: list[str] = []
-    for path in sorted(SRC.rglob("*.py")):
+    for path in python_sources(SRC):
         rel = path.relative_to(REPO).as_posix()
         if rel.endswith("experiments/seeding.py"):
             continue

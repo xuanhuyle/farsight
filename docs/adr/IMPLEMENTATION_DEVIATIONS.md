@@ -1399,3 +1399,73 @@ the hashed half, ceasing to record capability, rejecting an archived v1 flat doc
 capability back into the hashed half. The shape guard was rewritten to stub the one Linux-only
 measurement, because it first shipped skipping on Windows and two of those mutations walked
 through the skip.
+
+
+## DEV-26 — RESOLVED: a sweep for checks that pass while doing nothing
+
+**Record:** [ADR-000](ADR-000-adr-process-and-template.md) (the `NOT MECHANIZABLE:` / `PARTIALLY MECHANIZED:`
+tokens, which only mean anything if the mechanized part mechanizes); [ADR-019](ADR-019-reference-container.md)
+decision 2, "a predicate we cannot measure is a predicate we cannot enforce"
+**Code:** `tests/unit/_guards.py`; `src/farsight/engines/environment.py`; `container/build.sh`;
+`.github/workflows/ci.yml`
+
+**What differs.** Four mechanisms this repository describes as enforcement could report success
+while enforcing nothing. All four are fixed. None had fired; every one was reachable.
+
+**Why.** Three defects of one shape turned up on 2026-09-08 — the container gate piped into a
+closed stdin so it ran an empty program and exited 0 (DEV-20); an ISA pin whose rejection arrived
+as an `ImportWarning` CPython hides (DEV-23); and a deprecated NumPy alias whose eventual removal
+would have emptied a measured field through a bare `except`. In each, "did nothing" and
+"succeeded" were the same observation. Two were found by accident. That is not a rate to rely on,
+so the shape was searched for deliberately rather than waited for.
+
+**What the sweep found.**
+
+*1. Seven of nine source-scanning lints passed against a source tree that does not exist.*
+They walk `src/farsight`, collect offenders and assert there are none; an empty walk has no
+offenders. Demonstrated by pointing the scan roots at a missing directory and running them: seven
+green. The two that failed did so incidentally, on an unrelated second assertion. These lints are
+the repository's main enforcement mechanism — `os.urandom` appears once, `furnsh` has one call
+site, no naked RNG, no metakernel syntax, the exception hierarchy is closed. A moved package or a
+run against an installed wheel produces exactly that empty walk.
+
+`tests/unit/_guards.py` now holds `python_sources()`, which refuses a scan finding fewer than 25
+files, and all nine go through it. Re-run against the missing directory: nine failures.
+
+*2. Five fields of the Tier-A predicate recorded a neutral value when they could not be measured.*
+`isa_dispatch_selected`, `interpreter.binary_sha256`, `uv_lock_sha256`, `blas` and
+`engine_build_ids` each fall back to `[]`, `""` or `"unknown"` when the API behind them is missing
+or renamed. Right for a probe, wrong for a predicate: two environments that both failed to read
+their BLAS hash IDENTICALLY, and Tier A promises the converse. `engine_build_ids` was the sharpest
+— it returns `[]` both when spiceypy is absent and when it is present but the bundled library
+matched no glob, so a renamed CSPICE would have produced a valid-looking predicate asserting the
+image contains no engine. `numeric_environment` now refuses, naming the field. `with_spice=False`
+and a checkout with no `uv.lock` stay legitimate and are tested as such.
+
+*3. The `spice` CI job would have passed with `spiceypy` absent.* Every spice-dependent module
+opens with `pytest.importorskip`, so a failed install skips them all and the job reports success —
+in the job whose own comment says those tests "would otherwise never run anywhere". It now
+imports spiceypy in a step of its own first.
+
+*4. The apt bill of materials could be silently empty.* `build.sh` wrote it with `2>/dev/null ||
+true` and nothing checked the result, while DEV-22 and `digests.json` both claim the file records
+what apt resolved. An empty file that is archived as an artifact is worse than an absent one,
+because it looks like evidence. It now refuses.
+
+**Four false positives, stated so the next sweep does not re-flag them.** `test_common.py`'s nul
+hazard, `test_kernel_cache.py`'s cache-miss test and both `test_registry.py` atomicity tests glob
+a `tmp_path` rather than the source tree, and each carries real behavioural assertions. An empty
+glob there is the assertion, not a hole in one.
+
+**What the sweep did NOT fix, because it is a decision rather than a defect.** The `spice` job
+reports `484 passed, 8 skipped` on every run, and those eight are the Psyche and Horizons legs:
+the kernels are not in CI, so **the Horizons cross-check has never run there**. DEV-20 records
+that the real leg "skips cleanly when the 46 MiB is absent", which is true and was written as a
+convenience; the consequence is that the flagship external cross-check is protected against
+regression on one developer's machine only. Fixing it means caching 46 MiB of kernels in CI, which
+costs storage that is never garbage-collected by design (ADR-016) and is the founder's call.
+
+**Closes by:** closed for the four defects.
+
+**Status:** Resolved 2026-09-09. Every fix is mutation-checked. The remaining item is the CI
+kernel cache, which is a cost decision and is recorded in DEV-20 rather than here.

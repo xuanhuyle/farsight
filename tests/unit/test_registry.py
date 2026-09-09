@@ -25,6 +25,8 @@ SRC = REPO / "src" / "farsight"
 
 import datetime as dt
 
+from ._guards import python_sources
+
 
 def prov(**over) -> Provenance:
     base = {
@@ -298,7 +300,7 @@ def test_nothing_writes_a_file_except_the_atomic_helper():
     through an alias or a third-party helper.
     """
     offenders: list[str] = []
-    for path in sorted(SRC.rglob("*.py")):
+    for path in python_sources(SRC):
         rel = path.relative_to(SRC.parent.parent).as_posix().replace("src/farsight/", "")
         if rel in _EXEMPT or rel.startswith("analysis/"):
             continue

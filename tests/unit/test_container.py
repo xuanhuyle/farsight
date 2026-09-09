@@ -746,3 +746,75 @@ def test_a_v1_document_still_hashes_to_its_recorded_value():
 
     v1 = {"schema_version": "numeric_environment/1", "isa_enabled_features": ["AVX512F"]}
     assert numeric_environment_hash(v1) == content_hash(v1)
+
+
+def _healthy_measurement() -> dict:
+    return {
+        "isa_dispatch_selected": ["X86_V3"],
+        "interpreter": {"binary_sha256": "a" * 64},
+        "uv_lock_sha256": "b" * 64,
+        "blas": {"name": "scipy-openblas"},
+        "engine_build_ids": ["c" * 64],
+    }
+
+
+def test_an_unmeasurable_field_refuses_instead_of_recording_a_neutral_value():
+    """Every probe in `environment.py` degrades to [], "" or "unknown" when its API is missing.
+
+    That is right for a probe and wrong for a predicate: two environments that both failed to read
+    their BLAS would hash IDENTICALLY, while Tier A promises that equal predicates mean equal
+    numbers. ADR-019 decision 2 states the rule for the whole document -- "a predicate we cannot
+    measure is a predicate we cannot enforce" -- and the document is assembled from five
+    independent probes, any one of which can fail alone.
+
+    None of these had fired. All five could, and a NumPy or spiceypy upgrade is the likely trigger:
+    `_isa_features` already needed one such fix when `numpy.core` was deprecated.
+    """
+    from farsight.engines.environment import EnvironmentUnavailable, _refuse_a_degraded_measurement
+
+    _refuse_a_degraded_measurement(
+        _healthy_measurement(), with_spice=True, lock_exists=True
+    )  # must not raise
+
+    degradations = {
+        "isa_dispatch_selected": [],
+        "uv_lock_sha256": None,
+    }
+    for field, degraded in degradations.items():
+        obj = _healthy_measurement()
+        obj[field] = degraded
+        with pytest.raises(EnvironmentUnavailable, match=field.split(".")[0]):
+            _refuse_a_degraded_measurement(obj, with_spice=True, lock_exists=True)
+
+    unreadable_interpreter = _healthy_measurement()
+    unreadable_interpreter["interpreter"] = {"binary_sha256": ""}
+    with pytest.raises(EnvironmentUnavailable, match="interpreter"):
+        _refuse_a_degraded_measurement(unreadable_interpreter, with_spice=True, lock_exists=True)
+
+    unknown_blas = _healthy_measurement()
+    unknown_blas["blas"] = {"name": "unknown"}
+    with pytest.raises(EnvironmentUnavailable, match="blas"):
+        _refuse_a_degraded_measurement(unknown_blas, with_spice=True, lock_exists=True)
+
+    no_engine = _healthy_measurement()
+    no_engine["engine_build_ids"] = []
+    with pytest.raises(EnvironmentUnavailable, match="engine_build_ids"):
+        _refuse_a_degraded_measurement(no_engine, with_spice=True, lock_exists=True)
+
+
+def test_the_legitimate_empties_are_not_treated_as_failures():
+    """The refusal must not fire on states that are genuinely fine, or it gets switched off.
+
+    Two are genuine: a run measuring an environment with no engine in it (`with_spice=False`), and
+    a checkout with no `uv.lock` at all -- which `test_the_lock_exists_and_pins_what_the_predicate
+    _depends_on` already covers as an empty string rather than a defect.
+    """
+    from farsight.engines.environment import _refuse_a_degraded_measurement
+
+    no_engine = _healthy_measurement()
+    no_engine["engine_build_ids"] = []
+    _refuse_a_degraded_measurement(no_engine, with_spice=False, lock_exists=True)
+
+    no_lock = _healthy_measurement()
+    no_lock["uv_lock_sha256"] = ""
+    _refuse_a_degraded_measurement(no_lock, with_spice=True, lock_exists=False)
