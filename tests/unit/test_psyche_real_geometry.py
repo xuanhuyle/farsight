@@ -33,6 +33,8 @@ from farsight.registry.kernel_cache import KernelCache
 from farsight.registry.paths import kernel_cache_root
 from farsight.schemas.channels import UniformGrid
 
+from ._guards import skip_or_fail_on_missing_kernels
+
 REPO = Path(__file__).resolve().parents[2]
 
 # Furnish order is the decision (ADR-016 decision 2), so this list is the order, not a set.
@@ -69,7 +71,7 @@ def kernels() -> dict:
     cache = KernelCache(kernel_cache_root())
     missing = [n for n in ORDER if n not in pinned or not cache.has(pinned[n]["sha256"])]
     if missing:
-        pytest.skip(f"real kernels not in the local cache: {missing}")
+        skip_or_fail_on_missing_kernels(f"real kernels not in the local cache: {missing}")
     return pinned
 
 

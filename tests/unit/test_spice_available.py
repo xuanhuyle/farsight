@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from ._guards import skip_or_fail_on_missing_kernels
+
 spiceypy = pytest.importorskip(
     "spiceypy",
     reason="the `spice` extra is not installed -- which is the auditor's install, and is fine",
@@ -136,7 +138,7 @@ def test_the_authored_fixture_agrees_with_the_real_kernel():
     """
     real = _cached_naif_lsk()
     if real is None:
-        pytest.skip("naif0012.tls has not been fetched into this cache")
+        skip_or_fail_on_missing_kernels("naif0012.tls has not been fetched into this cache")
 
     spiceypy.furnsh(str(FIXTURE_LSK))
     try:

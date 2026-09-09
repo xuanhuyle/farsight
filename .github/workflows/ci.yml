@@ -59,6 +59,11 @@ jobs:
     # base install works without the extra. This job is the other half: the SPICE-dependent tests
     # skip in `test` and would otherwise never run anywhere.
     runs-on: ubuntu-latest
+    env:
+      # Pinned into the workspace so `actions/cache` has a stable path to save and restore. The
+      # default is ~/.local/share/farsight, which works but puts the store somewhere the cache
+      # key and the job's own checkout do not obviously relate to.
+      FARSIGHT_HOME: ${{ github.workspace }}/.farsight
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -75,7 +80,28 @@ jobs:
         # nothing, alongside a container gate that had been running an empty program.
         run: python -c "import spiceypy; print('CSPICE', spiceypy.tkvrsn('TOOLKIT'))"
 
+      - name: restore the pinned kernel cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.farsight/kernels
+          # Keyed on the MANIFEST, not a version string. Change a pinned sha256 and the key
+          # changes with it, so a stale cache can never satisfy a pin it does not hold.
+          key: farsight-kernels-${{ hashFiles('kernels/pinned_kernels.json') }}
+
+      - name: fetch any pinned kernel the cache does not have
+        # 46 MiB from NAIF on a cache MISS only; a hit makes this nine "present" lines and no
+        # network at all. The download goes through `farsight fetch kernel`, which verifies
+        # against the pinned sha256 on insert (ADR-016), rather than through a second downloader
+        # that would bypass that check.
+        run: python scripts/fetch_pinned_kernels.py
+
       - name: spice adapter tests
+        env:
+          # THE POINT OF THE TWO STEPS ABOVE. Without this the real-ephemeris legs SKIP when the
+          # cache is empty, and a failed fetch produces a green run that exercised none of them --
+          # including the Horizons cross-check, which is the strongest external claim this project
+          # makes and which had never once run in CI. DEV-26 found the same shape twice already.
+          FARSIGHT_REQUIRE_KERNELS: "1"
         run: python -m pytest tests/unit -q
       - name: boundaries still hold with spiceypy installed
         # `geometry_is_not_an_engine` can only be violated once spiceypy is importable, so this

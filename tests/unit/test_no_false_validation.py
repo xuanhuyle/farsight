@@ -387,3 +387,64 @@ def test_the_lint_rule_set_is_pinned_rather_than_inherited():
     assert re.fullmatch(r"ruff==\d+\.\d+\.\d+", pins[0].replace(" ", "")), (
         f"expected an exact ruff pin, got {pins[0]!r}"
     )
+
+
+def test_ci_runs_the_real_ephemeris_legs_rather_than_skipping_them():
+    """A job that reports the Horizons cross-check green must have actually run it.
+
+    Until 2026-09-09 the `spice` job reported `484 passed, 8 skipped` on every run, and those
+    eight were the Psyche and Horizons legs -- the kernels were not in CI, so the strongest
+    external claim this project makes had never once been checked there. It was protected against
+    regression on one developer's machine.
+
+    Three things have to hold together, and each is useless alone: the cache must be restored, a
+    miss must be fetched, and the suite must be told the kernels are REQUIRED. Without the third,
+    a failed fetch returns the suite to skipping and the job goes green having tested nothing --
+    which is the shape DEV-26 catalogued and this is the fourth instance of.
+    """
+    import yaml
+
+    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"))
+    steps = workflow["jobs"]["spice"]["steps"]
+
+    assert any("actions/cache" in (s.get("uses") or "") for s in steps), (
+        "the spice job does not restore a kernel cache, so every run would pay 46 MiB or skip"
+    )
+    assert any("fetch_pinned_kernels" in (s.get("run") or "") for s in steps), (
+        "nothing populates the kernel cache on a miss, so a cold cache means skipped legs"
+    )
+
+    strict = [s for s in steps if (s.get("env") or {}).get("FARSIGHT_REQUIRE_KERNELS") == "1"]
+    assert strict, (
+        "no step sets FARSIGHT_REQUIRE_KERNELS=1, so the real-ephemeris legs SKIP when the cache "
+        "is empty and the job reports success having exercised none of them"
+    )
+    assert any("pytest" in (s.get("run") or "") for s in strict), (
+        "FARSIGHT_REQUIRE_KERNELS is set on a step that does not run pytest, so it constrains "
+        "nothing -- the variable is only read by the test fixtures"
+    )
+
+
+def test_the_kernel_requirement_is_honoured_rather_than_merely_declared():
+    """`FARSIGHT_REQUIRE_KERNELS=1` must turn a missing kernel into a failure, not a skip.
+
+    Asserted against the helper directly, because the CI-shape test above can only see that the
+    variable is set. A variable nothing reads would satisfy that test and change nothing.
+    """
+    import os
+
+    import pytest
+
+    from ._guards import REQUIRE_KERNELS_ENV, skip_or_fail_on_missing_kernels
+
+    previous = os.environ.get(REQUIRE_KERNELS_ENV)
+    os.environ[REQUIRE_KERNELS_ENV] = "1"
+    try:
+        with pytest.raises(AssertionError, match="FAILURE rather than a skip"):
+            skip_or_fail_on_missing_kernels("pretend the cache is empty")
+    finally:
+        if previous is None:
+            os.environ.pop(REQUIRE_KERNELS_ENV, None)
+        else:
+            os.environ[REQUIRE_KERNELS_ENV] = previous

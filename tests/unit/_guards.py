@@ -48,3 +48,36 @@ def python_sources(root: Path | None = None, *, minimum: int = MINIMUM_MODULES) 
             f"offenders and passes. Check the scan root before trusting any green from this test."
         )
     return files
+
+
+REQUIRE_KERNELS_ENV = "FARSIGHT_REQUIRE_KERNELS"
+
+
+def skip_or_fail_on_missing_kernels(detail: str) -> None:
+    """Skip when the real kernels are absent — unless the caller has said they must be present.
+
+    A skip is the right DEFAULT. The pinned set is 46 MiB and ADR-016 decision 5 never garbage
+    collects it, so a developer who has not spent that disk should still get a useful suite, and
+    committing NAIF kernels to the repository is something ADR-016 rejects outright.
+
+    It is the wrong behaviour in a job whose PURPOSE is to run these legs.
+    `FARSIGHT_REQUIRE_KERNELS=1` turns the skip into a failure, and CI sets it wherever it has
+    just populated the cache.
+
+    Exactly the shape DEV-26 found in the `spice` job's `importorskip`: the mechanism that keeps a
+    suite usable without an optional dependency is the same mechanism that hides that dependency's
+    absence in the one place it must not be absent. Both are now opt-in strict.
+    """
+    import os
+
+    import pytest
+
+    if os.environ.get(REQUIRE_KERNELS_ENV) == "1":
+        raise AssertionError(
+            f"{detail}\n"
+            f"{REQUIRE_KERNELS_ENV}=1 is set, so this is a FAILURE rather than a skip: the caller "
+            f"stated the kernels would be present. Either the fetch step did not run, or it ran "
+            f"and did not populate the cache. A skip here would report a green run that exercised "
+            f"none of the real-ephemeris legs -- including the Horizons cross-check."
+        )
+    pytest.skip(detail)

@@ -22,6 +22,8 @@ from farsight.units.time import (
     utc_to_tdb_seconds,
 )
 
+from ._guards import skip_or_fail_on_missing_kernels
+
 REPO = Path(__file__).resolve().parents[2]
 
 
@@ -84,7 +86,9 @@ def test_the_two_implementations_agree_to_far_better_than_a_time_system_error():
     entry = pinned["kernels"][0]
     cache = KernelCache(kernel_cache_root())
     if not cache.has(entry["sha256"]):
-        pytest.skip("the pinned LSK is not in the local cache; run `farsight fetch kernel`")
+        skip_or_fail_on_missing_kernels(
+            "the pinned LSK is not in the local cache; run `farsight fetch kernel`"
+        )
 
     ref = KernelRef(
         sha256=entry["sha256"], kernel_type="lsk", logical_name=entry["logical_name"],

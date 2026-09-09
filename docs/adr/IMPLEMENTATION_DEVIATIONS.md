@@ -1467,13 +1467,30 @@ genuinely does import nothing from spiceypy. The third is a filter inside the le
 enclosing assertions are unconditional — and which caught a wrong ADR filename in this very entry
 while it was being written.
 
-**What the sweep did NOT fix, because it is a decision rather than a defect.** The `spice` job
-reports `484 passed, 8 skipped` on every run, and those eight are the Psyche and Horizons legs:
-the kernels are not in CI, so **the Horizons cross-check has never run there**. DEV-20 records
+**What the sweep surfaced as a decision rather than a defect, since taken.** The `spice` job
+reported `484 passed, 8 skipped` on every run, and those eight were the Psyche and Horizons legs:
+the kernels were not in CI, so **the Horizons cross-check had never run there**. DEV-20 records
 that the real leg "skips cleanly when the 46 MiB is absent", which is true and was written as a
-convenience; the consequence is that the flagship external cross-check is protected against
-regression on one developer's machine only. Fixing it means caching 46 MiB of kernels in CI, which
-costs storage that is never garbage-collected by design (ADR-016) and is the founder's call.
+convenience; the consequence was that the flagship external cross-check was protected against
+regression on one developer's machine only.
+
+**The founder decided on 2026-09-09 to cache the kernels in CI.** The `spice` job now restores an
+`actions/cache` keyed on `hashFiles('kernels/pinned_kernels.json')` -- on the manifest, so changing
+a pinned digest invalidates the cache rather than letting a stale one satisfy a new pin -- fetches
+any miss through `scripts/fetch_pinned_kernels.py`, and runs pytest with
+`FARSIGHT_REQUIRE_KERNELS=1`.
+
+That third part is the one that matters and is the reason this belongs in DEV-26 rather than only
+in DEV-20. Restoring a cache and fetching a miss are useless on their own: if the fetch fails, the
+fixtures fall back to skipping and the job goes green having exercised nothing, which is a fourth
+instance of the shape this entry catalogues. The variable turns those skips into failures. It is
+opt-in, so a developer without the 46 MiB still gets a useful suite -- ADR-016 decision 5 never
+garbage-collects that disk, and ADR-016 rejects committing NAIF kernels to the repository.
+
+The fetch goes through `farsight fetch kernel`, never through a downloader in `scripts/`: ADR-012
+makes `farsight.acquire` the only package permitted an HTTP library, and the cache's
+verify-on-insert lives behind that command. Three mutations fail the suite -- setting the variable
+to `"0"`, removing the fetch step, and declaring the variable while not honouring it.
 
 **Closes by:** closed for the four defects.
 
