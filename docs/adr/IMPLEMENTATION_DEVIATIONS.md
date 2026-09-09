@@ -1457,6 +1457,16 @@ hazard, `test_kernel_cache.py`'s cache-miss test and both `test_registry.py` ato
 a `tmp_path` rather than the source tree, and each carries real behavioural assertions. An empty
 glob there is the assertion, not a hole in one.
 
+A second pass looked for the same vacuity one level down — assertions inside an `if` that may
+never hold — and found three, all sound. Two are in
+`test_the_capabilities_module_imports_nothing_from_spiceypy`, and they draw the line this whole
+finding turns on: **scanning a directory can silently find nothing; reading a NAMED FILE cannot.**
+That test does `(SRC / "engines" / "spice" / "capabilities.py").read_text()`, so a wrong path
+raises `FileNotFoundError` instead of walking an empty set, and a module with no imports at all
+genuinely does import nothing from spiceypy. The third is a filter inside the ledger lint, whose
+enclosing assertions are unconditional — and which caught a wrong ADR filename in this very entry
+while it was being written.
+
 **What the sweep did NOT fix, because it is a decision rather than a defect.** The `spice` job
 reports `484 passed, 8 skipped` on every run, and those eight are the Psyche and Horizons legs:
 the kernels are not in CI, so **the Horizons cross-check has never run there**. DEV-20 records
