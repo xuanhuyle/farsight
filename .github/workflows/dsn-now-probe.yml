@@ -1,0 +1,72 @@
+name: dsn-now-probe
+
+# The first project's week-1 go/no-go, as fixed in experiments/dsn_now_probe/PREREGISTRATION.md:
+# archive NASA's public DSN Now feed for 7 days (14 if the pre-registered extension is needed), so
+# "is the `power` attribute a physical measurement?" can be decided offline against a fixed record.
+#
+# Kept apart from ci.yml on purpose. This workflow makes network requests on a schedule; CI must
+# stay a function of the commit it tests.
+#
+# One job of about 5.5 hours every 6 hours, because a single job cannot run for a week (6-hour
+# limit). Each job uploads its own archive. The gaps between jobs, and any delay GitHub adds to a
+# scheduled run, stay visible in each index.jsonl rather than being smoothed over.
+
+on:
+  schedule:
+    - cron: "7 */6 * * *"   # off the hour; GitHub delays scheduled runs that land on :00
+  workflow_dispatch:
+
+concurrency:
+  group: dsn-now-probe
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - name: the probe window is still open
+        # A logger still polling after its question is answered is not collecting evidence, and a
+        # green run that archived nothing is the exact failure this repository keeps finding. So
+        # past the hard stop this FAILS, loudly, until someone disables the workflow.
+        run: |
+          STOP=2026-09-26
+          TODAY=$(date -u +%F)
+          echo "today $TODAY, hard stop $STOP"
+          if [[ "$TODAY" > "$STOP" ]]; then
+            echo "The DSN Now probe window closed on $STOP. Disable .github/workflows/dsn-now-probe.yml." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: python -m pip install -e .
+
+      - name: archive the feed every 5 minutes for 5.5 hours
+        run: python scripts/log_dsn_now.py --into dsn_now --every 300 --hours 5.5
+
+      - name: the archive is not empty
+        # The logger already exits nonzero if every attempt failed. This checks the artifact the
+        # analysis will actually read, independently of the logger's own bookkeeping.
+        run: |
+          test -s dsn_now/index.jsonl || { echo "no index written" >&2; exit 1; }
+          n=$(find dsn_now/snapshots -type f -name '*.xml' | wc -l)
+          echo "archived snapshots: $n"
+          test "$n" -gt 0 || { echo "no snapshot archived" >&2; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        # `always()`: a job that failed partway still archived real snapshots, and those are
+        # evidence too.
+        if: always()
+        with:
+          name: dsn-now-${{ github.run_id }}
+          path: dsn_now/
+          retention-days: 90
+          if-no-files-found: error
