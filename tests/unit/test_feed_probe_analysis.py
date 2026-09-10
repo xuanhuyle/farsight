@@ -61,7 +61,9 @@ def _write_archive(root: Path, snapshots: list[bytes]) -> Path:
         when = dt.datetime.fromtimestamp(ts / 1000, dt.UTC).isoformat(timespec="seconds")
         lines.append(json.dumps({"attempted_at_utc": when, "sha256": digest,
                                  "bytes": len(body), "feed_timestamp_ms": ts}))
-    (root / "index.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Binary, LF-terminated -- exactly what scripts/log_dsn_now.py writes. Text mode would write
+    # CRLF on Windows and make byte comparisons disagree for a reason unrelated to the data.
+    (root / "index.jsonl").write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
     return root
 
 
@@ -204,3 +206,68 @@ def test_the_probe_workflow_cannot_pass_silently_or_run_forever():
     ci = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "log_dsn_now" not in ci, (
         "CI must stay a function of the commit, with no scheduled network")
+
+
+# ---------------------------------------------------------------------------------------------
+# merge_archives.py -- the logger uploads one archive per job; the analysis reads one directory.
+# ---------------------------------------------------------------------------------------------
+
+def _merger():
+    spec = importlib.util.spec_from_file_location("merge_archives", PROBE / "merge_archives.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_merging_job_archives_decides_exactly_as_one_archive_would(tmp_path):
+    """Plumbing must not move the verdict: split evidence across two jobs, merge, compare."""
+    days = [_day(d, -154, -160) for d in DATES]
+    whole = _write_archive(tmp_path / "whole", [s for day in days for s in day])
+    job1 = _write_archive(tmp_path / "job1", days[0] + days[1])
+    job2 = _write_archive(tmp_path / "job2", days[2])
+    merged = tmp_path / "merged"
+
+    assert _merger().main(["--into", str(merged), str(job2), str(job1)]) == 0
+    analyzer = _analyzer()
+    assert analyzer.main(["--archive", str(merged)]) == 0
+    assert analyzer.main(["--archive", str(whole)]) == 0
+    assert (merged / "index.jsonl").read_bytes() == (whole / "index.jsonl").read_bytes()
+
+
+def test_a_merge_refuses_a_tampered_snapshot_and_writes_nothing(tmp_path):
+    job = _write_archive(tmp_path / "job", _day(DATES[0], -154, -160))
+    victim = next((job / "snapshots").rglob("*.xml"))
+    victim.write_bytes(victim.read_bytes().replace(b"-154", b"-150"))
+    assert _merger().main(["--into", str(tmp_path / "out"), str(job)]) == 1
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_merge_refuses_the_same_archive_twice(tmp_path):
+    job = _write_archive(tmp_path / "job", _day(DATES[0], -154, -160))
+    assert _merger().main(["--into", str(tmp_path / "out"), str(job), str(job)]) == 1
+
+
+def test_a_merge_refuses_an_existing_destination(tmp_path):
+    job = _write_archive(tmp_path / "job", _day(DATES[0], -154, -160))
+    (tmp_path / "out").mkdir()
+    assert _merger().main(["--into", str(tmp_path / "out"), str(job)]) == 1
+
+
+def test_a_merge_refuses_an_index_line_whose_snapshot_is_missing(tmp_path):
+    job = _write_archive(tmp_path / "job", _day(DATES[0], -154, -160))
+    next((job / "snapshots").rglob("*.xml")).unlink()
+    assert _merger().main(["--into", str(tmp_path / "out"), str(job)]) == 1
+
+
+def test_failed_attempts_survive_a_merge(tmp_path):
+    """A failed fetch has no snapshot but is still evidence: it is what makes a gap visible."""
+    job = _write_archive(tmp_path / "job", _day(DATES[0], -154, -160))
+    failure = json.dumps({"attempted_at_utc": "2026-09-11T00:00:00+00:00",
+                          "error": "URLError: unreachable", "url": "https://example.invalid"})
+    with (job / "index.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(failure + "\n")
+    out = tmp_path / "out"
+    assert _merger().main(["--into", str(out), str(job)]) == 0
+    assert failure in (out / "index.jsonl").read_text(encoding="utf-8").splitlines()
