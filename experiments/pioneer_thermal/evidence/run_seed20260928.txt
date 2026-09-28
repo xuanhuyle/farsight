@@ -1,0 +1,59 @@
+Pioneer thermal acceleration, rebuilt from arXiv:1103.5222
+seed 20260928, 10000 Monte Carlo iterations
+
+GATE 1 - the five scenarios of Table 3 (1e-10 m/s^2)
+ # scenario                              published   rebuilt  residual  verdict
+ 1 lower bound, uniform temperature           2.27    2.2721   +0.0021  match
+ 2 higher emission from the louvers           4.43    4.4341   +0.0041  match
+ 3 diffusive reflection in the antenna        5.71    5.7115   +0.0015  match
+ 4 diffusive and specular reflection          5.69    5.6881   -0.0019  match
+ 5 upper bound                                6.71    6.9166   +0.2066  MISS
+Gate 1: FAIL (tolerance +/-0.005)
+  scenario 5 misses. For its published 6.71 a single input would have to be:
+    m_Pio (kg)        237.08   (the paper prints 230.00)
+    W_RTGb (W)        136.47   (the paper prints 158.24)
+    W_front (W)        53.86   (the paper prints 56.00)
+  None of these is adopted; the paper's own values are kept.
+
+GATE 2 - the Monte Carlo at t = 26 yr (1e-10 m/s^2)
+  published            5.8 +/- 1.3
+  rebuilt mean         5.7044  residual -0.0956
+  rebuilt median       5.7022
+  standard deviation   0.6059
+  half-width 1.96 s    1.1875  residual -0.1125
+  half-width 2.5-97.5  1.1876  residual -0.1124
+  95% interval         [4.499, 6.874]
+Gate 2: FAIL (tolerance +/-0.05)
+
+REPORTED, NOT GATING
+  same unknowns as intervals, worst corner: [3.967, 7.409], half-width 1.721
+  Monte Carlo 95% for comparison:           [4.499, 6.874], half-width 1.188
+  fraction of the anomaly:
+    against the central 8.74e-10: 51% to 79%
+    with its +/-1.33 swung against each end: 45% to 93%   (published: 44% to 96%)
+  W_RTGb from the stated geometry: 144.57 W against the published 143.86 W (+0.49%)
+    the inward-facing base is 0.071429 of an RTG's area, which is 1/14.0000
+    the published 143.86 W implies W_RTG = 2014.0 W, against the stated 2024.0 W
+  power model, Eq. (16) and Eq. (17):
+    t=   0 yr  W_tot  2580.0 W  (87.74 yr gives  2580.0 W, +0.000%)  W_equip 120.0 W  RTG  2440.0 W
+    t=   8 yr  W_tot  2422.0 W  (87.74 yr gives  2422.0 W, +0.001%)  W_equip  95.2 W  RTG  2306.7 W
+    t=  17 yr  W_tot  2255.7 W  (87.74 yr gives  2255.8 W, +0.003%)  W_equip  73.4 W  RTG  2162.3 W
+    t=  26 yr  W_tot  2100.9 W  (87.74 yr gives  2100.9 W, +0.005%)  W_equip  56.6 W  RTG  2024.2 W
+    stated at t=26: W_tot 2100.0 W, W_equip 56.0 W, W_RTG 2024.0 W
+  t = 8 yr (inputs scaled, not published): 8.94 +/- 1.84
+  t = 17 yr (inputs scaled, not published): 7.15 +/- 1.47
+    published: 8.9 +/- 2 at t=8, 7.1 +/- 1.6 at t=17
+
+ALTERNATIVE READINGS (none adopted)
+  Scenario 5, published 6.71:
+    as printed                            6.9166  +0.2066
+    no 10% RTG bump, W_RTGb = 143.86      6.7801  +0.0701
+    k_s,lat = 0                           6.9047  +0.1947
+    k_d,ant = 0.6, Scenario 4's value     6.6972  -0.0128
+    k_d,ant = 0.6 with k_s,ant = 0.2      6.9276  +0.2176
+  Monte Carlo at t = 26, published 5.8 +/- 1.3:
+    as read                               5.7044 +/- 1.1875
+    Scenario 5's RTG mean, 158.24         5.8410 +/- 1.2253
+    Scenario 5's louvre power, W_front = 56  6.7843 +/- 1.1879
+
+NOT REPRODUCED: at least one gate missed. The residuals above name which, and no input was adjusted to close them.
