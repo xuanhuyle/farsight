@@ -29,9 +29,12 @@ tests/fixtures/*.bpc       -text
 tests/fixtures/*.tf        -text
 tests/fixtures/*.tpc       -text
 kernels/**                 -text
-# The feed probe's evidence index: RESULT.md records its SHA-256, so its bytes are pinned
-# by a digest exactly like the fixtures above.
-experiments/dsn_now_probe/evidence/** -text
+# Experiment evidence: each RESULT.md records its files' SHA-256, so their bytes are pinned by a
+# digest exactly like the fixtures above. The rule is written for every experiment rather than for
+# the one that needed it first -- MEASURED 2026-09-28: the Pioneer run was committed with CRLF and
+# its memo recorded the digest of the working copy, not of the bytes git stored, so a reader who
+# cloned would have computed a different answer from the memo vouching for the file.
+experiments/*/evidence/** -text
 
 # Binary by nature.
 *.npy  binary
