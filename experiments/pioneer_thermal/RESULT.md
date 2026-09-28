@@ -168,8 +168,11 @@ the model refuses to report a verdict on a table that does not add up or a run t
 
 ## Evidence kept
 
-- `evidence/run_seed20260928.txt` — the run above, verbatim, 3,338 bytes,
-  sha256 `cffa8a0ea1ea3460ba17aeb8fca3286b8351f9e7d4ffa97d1c49161a436a5bf7`.
+- `evidence/run_seed20260928.txt` — the run above, verbatim, 3,279 bytes,
+  sha256 `3d37cf61baec0e64b0fee0cffdf1e7fe5c027d72317c9c32fdec722a0f95ca57`.
+  Line endings are LF, which is what git stores: the digest of a file recorded in
+  a memo has to be the digest a reader who clones the repository will compute,
+  and the first version of this line was not.
 - Inputs are in the papers, both open access: [arXiv:1103.5222](https://arxiv.org/abs/1103.5222)
   and [arXiv:0807.0041](https://arxiv.org/abs/0807.0041). Nothing was downloaded into this
   repository, and no input is held anywhere but in the script, where each is commented with the
