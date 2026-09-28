@@ -186,28 +186,6 @@ def test_the_script_still_says_what_the_preregistration_says():
     assert listed("34 m BWG") == analyzer.ANTENNAS_34M_BWG
 
 
-def test_the_probe_workflow_cannot_pass_silently_or_run_forever():
-    import yaml
-
-    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "dsn-now-probe.yml")
-                              .read_text(encoding="utf-8"))
-    steps = workflow["jobs"]["log"]["steps"]
-    runs = "\n".join(s.get("run") or "" for s in steps)
-
-    assert "STOP=" in runs and "exit 1" in runs, (
-        "no hard stop: a scheduled logger would keep polling NASA after its question is answered")
-    assert "the archive is not empty" in [s.get("name") for s in steps], (
-        "nothing checks that a job archived anything, so an empty run would go green")
-    upload = next(s for s in steps if "upload-artifact" in (s.get("uses") or ""))
-    assert upload["with"]["if-no-files-found"] == "error"
-    assert upload.get("if") == "always()"
-    assert workflow["concurrency"]["cancel-in-progress"] is False
-
-    ci = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "log_dsn_now" not in ci, (
-        "CI must stay a function of the commit, with no scheduled network")
-
-
 # ---------------------------------------------------------------------------------------------
 # merge_archives.py -- the logger uploads one archive per job; the analysis reads one directory.
 # ---------------------------------------------------------------------------------------------

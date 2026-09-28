@@ -1,0 +1,24 @@
+DSN Now feed probe -- decided under PREREGISTRATION.md
+  attempts: 4290
+  failed_attempts: 5
+  window: 2026-09-10T10:56:02+00:00 .. 2026-09-17T10:56:02+00:00 (7 days)
+  distinct_feed_timestamps: 1777
+
+Pairings (70 m minus 34 m BWG, same spacecraft, X-band, same UTC date): 8
+  2026-09-11 EURC   DSS43(23)  -140.0  DSS36(72)  -150.0  diff +10.0 dB  OUTSIDE
+  2026-09-11 JNO    DSS43(23)  -130.0  DSS34(25)  -140.0  diff +10.0 dB  OUTSIDE
+  2026-09-12 JNO    DSS43(33)  -130.0  DSS25(106)  -130.0  diff  +0.0 dB  OUTSIDE
+  2026-09-16 JNO    DSS43(45)  -130.0  DSS25(52)  -130.0  diff  +0.0 dB  OUTSIDE
+  2026-09-12 NHPC   DSS43(123)  -150.0  DSS26(62)  -160.0  diff +10.0 dB  OUTSIDE
+  2026-09-15 PSYC   DSS43(8)  -110.0  DSS36(24)  -120.0  diff +10.0 dB  OUTSIDE
+  2026-09-16 PSYC   DSS43(18)  -120.0  DSS34(21)  -120.0  diff  +0.0 dB  OUTSIDE
+  2026-09-12 VGR2   DSS43(26)  -160.0  DSS34(102)  -170.0  diff +10.0 dB  OUTSIDE
+
+Reported, not gating:
+  eligible values: 6652; integers 100%; on multiples of 10 97%
+  active=True : 15051 signals with a number, 1 sentinels (<= -300)
+  active=False: 7503 signals with a number, 3765 sentinels (<= -300)
+  elevation vs power: 98 passes with variation, median Spearman -0.13
+  arrayed minus single-dish median power: no spacecraft-date had both
+
+FAIL: 0 of 8 pairings inside [3.3, 9.0] dB (needed 7), across 4 dates
