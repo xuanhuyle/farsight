@@ -29,6 +29,9 @@ tests/fixtures/*.bpc       -text
 tests/fixtures/*.tf        -text
 tests/fixtures/*.tpc       -text
 kernels/**                 -text
+# The feed probe's evidence index: RESULT.md records its SHA-256, so its bytes are pinned
+# by a digest exactly like the fixtures above.
+experiments/dsn_now_probe/evidence/** -text
 
 # Binary by nature.
 *.npy  binary
