@@ -16,12 +16,28 @@ The question it exists to answer is not "what is the probability this mission su
 
 ## Status
 
-**Early.** The architecture is settled and the first code is landing.
+**Early, and now doing work.** The architecture is settled, the core is running, and it has been
+pointed at real published analyses.
 
-- 30 accepted architecture decision records in [`docs/adr/`](docs/adr/README.md)
+- 31 accepted architecture decision records in [`docs/adr/`](docs/adr/README.md)
 - The approved 8-week plan in [`FARSIGHT_FOUNDATION_PLAN.md`](FARSIGHT_FOUNDATION_PLAN.md)
-- Week-1 code: canonical identity and the uncertainty type system
-- Not yet: engines, runner, evidence packages, CLI
+- Running: canonical identity, the uncertainty type system, SPICE geometry cross-checked against
+  JPL Horizons, a verified kernel cache, reproducible container runs, and a CLI
+- Not yet: fault injection, cross-engine comparison, published evidence packages
+
+### What has been checked so far
+
+Three published analyses have been rebuilt from the inputs their own documents print, each against
+a standard fixed before the answer was known. **[`FINDINGS.md`](FINDINGS.md)** is the readable
+account: what rebuilt, what did not, and what the sources never wrote down.
+
+The short version — a JPL link budget whose tables do not share one aggregation convention; a NASA
+public data feed that failed a pre-registered test to serve as an answer key; and a well-cited
+Pioneer anomaly paper whose numbers mostly rebuild exactly, with two that do not and an input that
+turns out to be recoverable from geometry the paper never connects to it.
+
+All of it is internally cross-checked and **not externally expert-reviewed**
+([ADR-030](docs/adr/)).
 
 ## The ideas that shape everything else
 
