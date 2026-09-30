@@ -328,6 +328,72 @@ def test_verification_imports_no_engine_extra(scratch):
     assert "LEAKED []" in done.stdout, f"verification imported an engine:\n{done.stdout}"
 
 
+def test_verification_works_when_the_engine_extras_are_absent(scratch):
+    """Stronger than "did not import it": make them unimportable and verify anyway.
+
+    The zero-extras claim is about an auditor's laptop, where spiceypy and Basilisk are not
+    installed at all. This environment has the spice extra, so absence is simulated with a
+    meta-path finder that raises ImportError for those names -- which is what the auditor's
+    interpreter does on its own. Without this, the test would only show that verification
+    happens not to touch an engine that is sitting right there.
+    """
+    probe = (
+        "import runpy, sys",
+        "BLOCKED = ('spiceypy', 'bsk', 'gmat', 'pandas', 'matplotlib')",
+        "class Blocker:",
+        "    def find_module(self, name, path=None):",
+        "        return None",
+        "    def find_spec(self, name, path=None, target=None):",
+        "        if name.split('.')[0] in BLOCKED:",
+        "            raise ImportError('simulated zero-extras install: ' + name)",
+        "        return None",
+        "sys.meta_path.insert(0, Blocker())",
+        "package, verifier = sys.argv[1], sys.argv[2]",
+        "sys.argv = ['verify_evidence_package.py', package]",
+        "try:",
+        "    runpy.run_path(verifier, run_name='__main__')",
+        "except SystemExit as exc:",
+        "    code = exc.code or 0",
+        "else:",
+        "    code = 0",
+        "print('EXIT', code)",
+    )
+    done = subprocess.run(
+        [
+            sys.executable, "-c", "\n".join(probe),
+            str(scratch), str(PIONEER / "verify_evidence_package.py"),
+        ],
+        capture_output=True, text=True, timeout=300, check=False,
+    )
+    assert "EXIT 0" in done.stdout, (
+        f"verification failed with the engine extras unavailable:\n{done.stdout}\n{done.stderr}"
+    )
+
+
+def test_the_blocker_itself_works(scratch):
+    """The guard on the guard: if the blocker did nothing, the test above proves nothing."""
+    probe = (
+        "import sys",
+        "class Blocker:",
+        "    def find_spec(self, name, path=None, target=None):",
+        "        if name.split('.')[0] == 'spiceypy':",
+        "            raise ImportError('blocked')",
+        "        return None",
+        "sys.meta_path.insert(0, Blocker())",
+        "try:",
+        "    import spiceypy",
+        "except ImportError:",
+        "    print('BLOCKED OK')",
+        "else:",
+        "    print('BLOCKER DID NOTHING')",
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", "\n".join(probe)],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert "BLOCKED OK" in done.stdout, done.stdout + done.stderr
+
+
 # --------------------------------------------------------------------------------------------
 # The labelled counterfactual
 
