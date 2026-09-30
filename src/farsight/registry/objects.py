@@ -30,12 +30,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, ValidationError
+
 from farsight.hashing.canonical import canonical_bytes, content_hash
 from farsight.registry.atomic import write_atomic
 from farsight.schemas.common import Provenance, is_ref
 from farsight.schemas.errors import FarSightError
 
-__all__ = ["ObjectStore", "ObjectStoreError"]
+__all__ = ["ObjectStore", "ObjectStoreError", "document_of"]
 
 
 class ObjectStoreError(FarSightError, ValueError):
@@ -68,7 +70,7 @@ class ObjectStore:
         Idempotent by ADR-001 decision 6. If the address already exists on disk, nothing is
         written and the existing provenance is left alone -- see the module docstring.
         """
-        document = obj.model_dump(mode="json") if hasattr(obj, "model_dump") else obj
+        document = document_of(obj)
         ref = content_hash(document)
         destination = self.path_for(ref)
 
@@ -141,17 +143,51 @@ class ObjectStore:
         return sorted(found)
 
 
+def document_of(obj: Any) -> Any:
+    """The JSON document of ``obj``, after re-running its schema.
+
+    **Why the store validates and the hash function does not.**
+    :func:`farsight.hashing.canonical.hash_object` is a byte operation: give it any mapping and
+    it addresses what it was given, which is the correct behaviour for a general-purpose hash
+    and is what ``verify`` needs when re-addressing raw JSON read back from disk.
+
+    This path is different, because storing a document is where FarSight starts making
+    evidence-grade claims about it. ADR-001's rule is that **a content address is the address
+    of a validated document**, so the address minted here has to mean that a validator saw this
+    exact content -- not that one saw some earlier state of the object.
+
+    Two routes reach a schema-violating instance even though the model is frozen and its
+    containers now refuse mutation (:class:`farsight.schemas.common.FrozenList`):
+    ``model_construct``, which skips every validator by design, and ``object.__setattr__``.
+    Neither is exotic: ``model_construct`` is what a caller reaches for when profiling says
+    validation is hot. Revalidating here costs one pass per stored object and closes both,
+    whatever new route appears later.
+
+    A non-model (a plain dict read back from disk, say) is passed through unchanged. There is no
+    schema to re-run, and this function does not invent one.
+    """
+    if not isinstance(obj, BaseModel):
+        return obj
+    try:
+        type(obj).model_validate(dict(obj.__dict__))
+    except ValidationError as exc:
+        raise ObjectStoreError(
+            f"refusing to address a {type(obj).__name__} that does not satisfy its own schema. "
+            f"A content address is the address of a validated document (ADR-001), so this "
+            f"object cannot be stored until it is valid:\n{exc}"
+        ) from exc
+    return obj.model_dump(mode="json")
+
+
 def envelope_bytes(obj: Any, provenance: Provenance) -> bytes:
     """The exact bytes :meth:`ObjectStore.put` would write. Exposed for tests and package build."""
-    document = obj.model_dump(mode="json") if hasattr(obj, "model_dump") else obj
-    envelope = {"object": document, "provenance": provenance.model_dump(mode="json")}
+    envelope = {"object": document_of(obj), "provenance": provenance.model_dump(mode="json")}
     return (json.dumps(envelope, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
 def object_address(obj: Any) -> str:
     """The address ``obj`` would be stored at. Pure, and the same function ``put`` uses."""
-    document = obj.model_dump(mode="json") if hasattr(obj, "model_dump") else obj
-    return content_hash(document)
+    return content_hash(document_of(obj))
 
 
 # Re-exported so callers do not reach into the hashing package for the one thing they need here.

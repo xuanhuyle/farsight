@@ -16,6 +16,7 @@ the claim silently.
 
 from __future__ import annotations
 
+import copy as _copy
 import datetime as _dt
 import re
 from decimal import Decimal
@@ -28,6 +29,8 @@ __all__ = [
     "PATH_RE",
     "SEGMENT_RE",
     "WINDOWS_RESERVED",
+    "FrozenDict",
+    "FrozenList",
     "FrozenModel",
     "IntervalQ",
     "Provenance",
@@ -36,6 +39,7 @@ __all__ = [
     "TimeSpanQ",
     "ValidityEnvelope",
     "VersionedDocument",
+    "freeze_containers",
     "is_ref",
     "is_under",
     "normalize_decimal",
@@ -224,6 +228,97 @@ def normalize_decimal(value: Any) -> str:
     raise ValueError(f"cannot interpret {type(value).__name__} as a magnitude")
 
 
+class FrozenList(list):  # type: ignore[type-arg]
+    """A list that refuses every mutation, for a field inside a frozen document.
+
+    MEASURED 2026-09-30: ``frozen=True`` stops ``pedigree.sources = [...]`` and stops
+    ``model_copy`` from writing an unvalidated field, but it does nothing about
+    ``pedigree.sources.clear()``. The list object itself was ordinary, so a valid
+    ``Pedigree`` could be emptied in place -- violating the validator that requires a cited
+    source -- and :func:`farsight.hashing.canonical.hash_object` would still mint a 64-hex
+    address for it. Appending ``"not-a-digest"`` to that same list worked too, putting a value
+    that is not a ``Ref`` inside a document whose schema says every entry is one.
+
+    That is the same defect ``model_copy`` already had, one level down: **a content address is
+    the address of a validated document**, and the mutation happened after the validator ran.
+
+    A ``list`` subclass rather than a ``tuple`` because the field annotations stay ``list[...]``,
+    Pydantic keeps validating and serialising exactly as before, and the canonical JSON is
+    unchanged -- so **no existing content address moves**. What changes is only that the
+    mutating methods raise.
+    """
+
+    __slots__ = ()
+
+    def _refuse(self, *_args: Any, **_kwargs: Any) -> Any:
+        raise TypeError(
+            "this list belongs to a frozen document and cannot be modified in place; "
+            "build a new object instead (model_copy(update=...) revalidates)"
+        )
+
+    # Every mutator list exposes. Named individually rather than by a loop so that a reader can
+    # see the closed set, and so a new Python list method does not silently slip through.
+    append = extend = insert = remove = pop = clear = sort = reverse = _refuse
+    __setitem__ = __delitem__ = __iadd__ = __imul__ = _refuse
+
+    # Copying and pickling build their result by appending, which the refusal above breaks.
+    # MEASURED: `model_copy(deep=True)` failed on exactly this. Pickling matters too, because
+    # ADR-002 runs engines in separate processes and a model crosses that boundary pickled.
+    def __copy__(self) -> FrozenList:
+        return type(self)(self)
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> FrozenList:
+        result = type(self)(_copy.deepcopy(item, memo) for item in self)
+        memo[id(self)] = result
+        return result
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (type(self), (list(self),))
+
+
+class FrozenDict(dict):  # type: ignore[type-arg]
+    """A dict that refuses every mutation. The :class:`FrozenList` argument, for mappings."""
+
+    __slots__ = ()
+
+    def _refuse(self, *_args: Any, **_kwargs: Any) -> Any:
+        raise TypeError(
+            "this mapping belongs to a frozen document and cannot be modified in place; "
+            "build a new object instead (model_copy(update=...) revalidates)"
+        )
+
+    update = setdefault = pop = popitem = clear = _refuse
+    __setitem__ = __delitem__ = __ior__ = _refuse
+
+    def __copy__(self) -> FrozenDict:
+        return type(self)(self)
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> FrozenDict:
+        result = type(self)((key, _copy.deepcopy(value, memo)) for key, value in self.items())
+        memo[id(self)] = result
+        return result
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (type(self), (dict(self),))
+
+
+def freeze_containers(value: Any) -> Any:
+    """Return ``value`` with every nested list and dict replaced by a refusing one.
+
+    Recursive, because a field may hold a list of lists or a dict of lists. Nested
+    :class:`FrozenModel` instances freeze themselves on construction, so this does not need to
+    reach inside them -- and must not, since doing so would depend on the order Pydantic builds
+    them in.
+    """
+    if isinstance(value, FrozenList | FrozenDict):
+        return value
+    if isinstance(value, list):
+        return FrozenList(freeze_containers(item) for item in value)
+    if isinstance(value, dict):
+        return FrozenDict((key, freeze_containers(item)) for key, item in value.items())
+    return value
+
+
 class FrozenModel(BaseModel):
     """Base for every hashed schema object: immutable, and unknown fields are errors.
 
@@ -242,6 +337,20 @@ class FrozenModel(BaseModel):
     model_config = ConfigDict(
         frozen=True, extra="forbid", populate_by_name=True, validate_default=True
     )
+
+    def model_post_init(self, context: Any, /) -> None:
+        """Freeze the containers Pydantic just built, after validation and before any use.
+
+        This runs once per constructed model, including the ones ``model_validate`` and
+        ``model_copy`` produce, so there is no route to an instance whose lists are ordinary.
+        ``object.__setattr__`` because the model is frozen against exactly this assignment --
+        the point is to install the refusing container, not to change the value.
+        """
+        super().model_post_init(context)
+        for name, value in self.__dict__.items():
+            frozen = freeze_containers(value)
+            if frozen is not value:
+                object.__setattr__(self, name, frozen)
 
     def model_copy(self, *, update: dict[str, Any] | None = None, deep: bool = False) -> Any:
         """Copy with validation. Overridden because the inherited version has none.
