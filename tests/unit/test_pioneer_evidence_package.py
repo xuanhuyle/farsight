@@ -30,6 +30,8 @@ import pytest
 
 from farsight.evidence.manifest import seal
 
+from ._guards import skip_or_fail_without_git
+
 REPO = Path(__file__).resolve().parents[2]
 PIONEER = REPO / "experiments" / "pioneer_thermal"
 BUILT_AT = _dt.datetime(2026, 9, 30, 12, 0, tzinfo=_dt.UTC)
@@ -735,6 +737,11 @@ def _git(repo: Path, *args: str) -> None:
 
 @pytest.fixture
 def clean_checkout(tmp_path) -> Path:
+    skip_or_fail_without_git(
+        "building a controlled clean or dirty checkout needs a git binary, and the reference "
+        "image has none. The absent-git case -- which is that image's own condition -- is "
+        "covered by tests that need no binary and are never skipped."
+    )
     repo = tmp_path / "clean"
     repo.mkdir()
     _git(repo, "init", "-q")
