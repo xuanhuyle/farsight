@@ -133,13 +133,6 @@ def test_an_intact_package_verifies(baseline):
     assert verify(baseline) == 0
 
 
-def test_the_package_records_whether_the_checkout_was_dirty(baseline):
-    code = _read(baseline, "manifest.json")["code"]
-    assert code["commit_known"] is True
-    assert isinstance(code["dirty"], bool)
-    assert code["model_sha256"]
-
-
 def test_two_builds_with_the_same_timestamp_are_byte_identical(tmp_path):
     """Identity is content, so the only thing that may differ between builds is the timestamp."""
     first, second = tmp_path / "a", tmp_path / "b"
@@ -152,18 +145,34 @@ def test_two_builds_with_the_same_timestamp_are_byte_identical(tmp_path):
 
 
 def _reseal_like_a_competent_forger(package: Path) -> None:
-    """Re-render the report from the tampered JSON, then re-seal.
+    """Make a tampered package internally consistent, the way a forger who did their homework
+    would: re-store the results as a content-addressed object, repoint the manifest at it,
+    re-render the report, then re-seal.
 
-    A naive edit is caught by the file manifest, and an edit plus a re-seal is caught by the
-    generated report no longer matching. Both are real defences, and both are tested. This
-    helper strips them away so the tests below reach the checks underneath -- recomputation and
-    self-agreement -- which is where a forger who did their homework would arrive.
+    Each layer this strips away is a real defence and is tested on its own -- a naive edit fails
+    the file manifest, an edit plus a re-seal fails the generated report, and an edit that leaves
+    the addressed object behind fails the cross-file check. This helper exists so the tests below
+    reach the layer underneath all of them: recomputation, and verdicts derived rather than read.
+    That layer is the one the reviewer's forgery walked straight through.
     """
     module = builder()
+    from farsight.registry.objects import ObjectStore
+    from farsight.schemas.common import Provenance
     from farsight.schemas.knowledge import Assumption
 
-    manifest = _read(package, "manifest.json")
     results = _read(package, "metrics/results.json")
+    store = ObjectStore(package)
+    new_ref = store.put(
+        results,
+        Provenance(
+            created_at=_dt.datetime(2026, 9, 30, tzinfo=_dt.UTC),
+            frozen_by="forger", authorization="unattended", tool_version="forge/1",
+        ),
+    )
+    manifest = _read(package, "manifest.json")
+    manifest["refs"]["results"] = new_ref
+    _write(package, "manifest.json", manifest)
+
     declared = [
         Assumption.model_validate(a)
         for a in _read(package, "registers/assumptions.json")["assumptions"]
@@ -450,3 +459,352 @@ def test_verifying_does_not_modify_the_package(scratch):
     }
     assert set(after) - set(before) == set(), "verification created files inside the package"
     assert before == after, "verification changed the package it was checking"
+
+
+# --------------------------------------------------------------------------------------------
+# The reviewer's forgery, and each of its independent failure modes
+#
+# MEASURED 2026-09-30 against f10b597: setting scenario 5's residual to "0.0" and its
+# within_tolerance to true, both gate verdicts to "pass", the Monte Carlo central to "5.8" and
+# both half-widths to "1.3", the manifest's overall_verdict to "reproduced", then re-rendering
+# the report and re-sealing, produced a package that verified with exit 0 and reported both
+# gates passed -- without touching the calculation, the accelerations, the targets or any
+# content-addressed object. Each test below isolates one reason that worked.
+
+
+def _restore_object(package: Path, relative: str, ref_name: str) -> str:
+    """Re-store an operational file as its content-addressed object and repoint the manifest."""
+    from farsight.registry.objects import ObjectStore
+    from farsight.schemas.common import Provenance
+
+    document = _read(package, relative)
+    ref = ObjectStore(package).put(
+        document,
+        Provenance(
+            created_at=_dt.datetime(2026, 9, 30, tzinfo=_dt.UTC),
+            frozen_by="forger", authorization="unattended", tool_version="forge/1",
+        ),
+    )
+    manifest = _read(package, "manifest.json")
+    manifest["refs"][ref_name] = ref
+    _write(package, "manifest.json", manifest)
+    return ref
+
+
+def _forge_results(package: Path, mutate) -> None:
+    """Edit results.json, then make the package internally consistent about it."""
+    results = _read(package, "metrics/results.json")
+    mutate(results)
+    _write(package, "metrics/results.json", results)
+    _reseal_like_a_competent_forger(package)
+
+
+def test_a_changed_residual_with_an_unchanged_acceleration_is_derived_away(scratch, capsys):
+    """The residual is now computed from the recomputed acceleration and the published target."""
+    def mutate(results):
+        results["gate_1"]["scenarios"][4]["residual_1e10"] = "0.0"
+        results["gate_1"]["scenarios"][4]["within_tolerance"] = True
+        results["gate_1"]["verdict"] = "pass"
+
+    _forge_results(scratch, mutate)
+    assert verify(scratch) == 5
+    err = capsys.readouterr().err
+    assert "residual is derived" in err and "scenario 5" in err
+
+
+def test_a_forged_within_tolerance_boolean_is_rejected(scratch):
+    """The boolean is derived from the residual and the pre-registered tolerance."""
+    def mutate(results):
+        results["gate_1"]["scenarios"][4]["within_tolerance"] = True
+        results["gate_1"]["verdict"] = "pass"
+
+    _forge_results(scratch, mutate)
+    assert verify(scratch) == 5
+
+
+def test_a_forged_monte_carlo_summary_is_recomputed_away(scratch, capsys):
+    """Gate 2 had no recomputation at all; the statistics were taken as written."""
+    def mutate(results):
+        results["gate_2"]["central_1e10"] = "5.8"
+        results["gate_2"]["half_width_1p96_sigma_1e10"] = "1.3"
+        results["gate_2"]["half_width_percentile_1e10"] = "1.3"
+        results["gate_2"]["verdict"] = "pass"
+
+    _forge_results(scratch, mutate)
+    assert verify(scratch) == 4
+    assert "not what the recorded run produces" in capsys.readouterr().err
+
+
+def test_the_reviewers_full_forgery_is_rejected(scratch):
+    """The exact reported sequence, made internally consistent at every layer."""
+    def mutate(results):
+        results["gate_1"]["scenarios"][4]["residual_1e10"] = "0.0"
+        results["gate_1"]["scenarios"][4]["within_tolerance"] = True
+        results["gate_1"]["verdict"] = "pass"
+        results["gate_2"]["central_1e10"] = "5.8"
+        results["gate_2"]["half_width_1p96_sigma_1e10"] = "1.3"
+        results["gate_2"]["half_width_percentile_1e10"] = "1.3"
+        results["gate_2"]["verdict"] = "pass"
+
+    manifest = _read(scratch, "manifest.json")
+    manifest["overall_verdict"] = "reproduced"
+    _write(scratch, "manifest.json", manifest)
+    _forge_results(scratch, mutate)
+    assert verify(scratch) != 0, "the reported false positive must not verify"
+    assert verify(scratch) in (4, 5)
+
+
+def test_a_forged_claim_result_verdict_is_rejected(scratch):
+    """The ClaimResult objects are the package's formal verdicts and must agree too."""
+    from farsight.registry.objects import ObjectStore
+    from farsight.schemas.common import Provenance
+    from farsight.schemas.design import ClaimResult
+
+    manifest = _read(scratch, "manifest.json")
+    store = ObjectStore(scratch)
+    provenance = Provenance(
+        created_at=_dt.datetime(2026, 9, 30, tzinfo=_dt.UTC),
+        frozen_by="forger", authorization="unattended", tool_version="forge/1",
+    )
+    forged = []
+    for ref in manifest["refs"]["claim_results"]:
+        result = store.get(ref)
+        forged.append(store.put(
+            ClaimResult(claim_ref=result["claim_ref"], verdict="pass",
+                        aggregate_ref=result["aggregate_ref"]),
+            provenance,
+        ))
+    manifest["refs"]["claim_results"] = forged
+    _write(scratch, "manifest.json", manifest)
+    seal(scratch)
+    assert verify(scratch) == 5
+
+
+def test_an_operational_file_that_disagrees_with_its_addressed_object_is_rejected(scratch):
+    """The addressed object is the record; the file the calculation reads must match it."""
+    criteria = _read(scratch, "experiment/acceptance_criteria.json")
+    criteria["gate_1"]["tolerance_1e10"] = "1.0"
+    _write(scratch, "experiment/acceptance_criteria.json", criteria)
+    seal(scratch)
+    assert verify(scratch) == 3
+
+
+def test_a_loosened_tolerance_cannot_rescue_a_failed_gate(scratch):
+    """Even made fully consistent, widening the criterion changes the claim, not the result.
+
+    The tolerance is pre-registered; this test exists to show what happens if someone edits it
+    anyway. The package still has to be self-consistent, so the forger must also flip the stored
+    verdict -- and then the derived verdict and the stored one are compared as usual.
+    """
+    criteria = _read(scratch, "experiment/acceptance_criteria.json")
+    criteria["gate_1"]["tolerance_1e10"] = "1.0"
+    _write(scratch, "experiment/acceptance_criteria.json", criteria)
+    _restore_object(scratch, "experiment/acceptance_criteria.json", "criterion")
+    _reseal_like_a_competent_forger(scratch)
+    # gate 1 now derives as "pass" against the widened tolerance while the file still records
+    # "fail", which is a contradiction the verifier must report rather than paper over.
+    assert verify(scratch) == 5
+
+
+# --------------------------------------------------------------------------------------------
+# Units are read, not merely carried
+
+
+def test_watts_relabelled_as_kilograms_is_rejected(scratch, capsys):
+    """MEASURED: this passed all four checks, because recomputation dropped the unit."""
+    inputs = _read(scratch, "experiment/scenario_inputs.json")
+    inputs["scenarios"][0]["inputs"]["w_front"]["unit"] = "kg"
+    _write(scratch, "experiment/scenario_inputs.json", inputs)
+    seal(scratch)
+    assert verify(scratch) == 3
+    err = capsys.readouterr().err
+    assert "scenario 1" in err and "w_front" in err and "kg" in err
+
+
+def test_a_compatible_unit_is_converted_explicitly(scratch):
+    """Conversion is supported and performed before the calculation, never assumed."""
+    inputs = _read(scratch, "experiment/scenario_inputs.json")
+    first = inputs["scenarios"][0]["inputs"]["w_front"]
+    watts = float(first["magnitude"])
+    first["magnitude"] = repr(watts / 1000.0)
+    first["unit"] = "kW"
+    _write(scratch, "experiment/scenario_inputs.json", inputs)
+    seal(scratch)
+    assert verify(scratch) == 0, "a dimensionally correct unit must be converted, not refused"
+
+
+def test_a_nonsense_magnitude_is_rejected(scratch):
+    inputs = _read(scratch, "experiment/scenario_inputs.json")
+    inputs["scenarios"][0]["inputs"]["w_front"]["magnitude"] = "-5.0"
+    _write(scratch, "experiment/scenario_inputs.json", inputs)
+    seal(scratch)
+    assert verify(scratch) == 3
+
+
+def test_a_coefficient_outside_zero_to_one_is_rejected(scratch):
+    inputs = _read(scratch, "experiment/scenario_inputs.json")
+    inputs["scenarios"][0]["inputs"]["kd_ant"]["magnitude"] = "1.5"
+    _write(scratch, "experiment/scenario_inputs.json", inputs)
+    seal(scratch)
+    assert verify(scratch) == 3
+
+
+def test_a_duplicated_scenario_is_rejected(scratch, capsys):
+    inputs = _read(scratch, "experiment/scenario_inputs.json")
+    inputs["scenarios"][4]["scenario"] = 1
+    _write(scratch, "experiment/scenario_inputs.json", inputs)
+    seal(scratch)
+    assert verify(scratch) == 3
+    assert "substituted scenario" in capsys.readouterr().err
+
+
+def test_a_missing_scenario_is_rejected(scratch):
+    inputs = _read(scratch, "experiment/scenario_inputs.json")
+    inputs["scenarios"] = inputs["scenarios"][:4]
+    _write(scratch, "experiment/scenario_inputs.json", inputs)
+    seal(scratch)
+    assert verify(scratch) == 3
+
+
+def test_a_missing_input_field_is_rejected(scratch):
+    inputs = _read(scratch, "experiment/scenario_inputs.json")
+    del inputs["scenarios"][0]["inputs"]["ks_lat"]
+    _write(scratch, "experiment/scenario_inputs.json", inputs)
+    seal(scratch)
+    assert verify(scratch) == 3
+
+
+# --------------------------------------------------------------------------------------------
+# The execution settings are explicit, and checked against the code that uses them
+
+
+def test_an_execution_setting_that_disagrees_with_the_packaged_code_is_rejected(scratch, capsys):
+    """Recording a parameter is only worth something if it must match what the sampler reads."""
+    settings = _read(scratch, "experiment/execution_settings.json")
+    settings["parameters"]["ks_lat"]["magnitude"] = "0.5"
+    _write(scratch, "experiment/execution_settings.json", settings)
+    _restore_object(scratch, "experiment/execution_settings.json", "execution_settings")
+    seal(scratch)
+    assert verify(scratch) == 4
+    assert "the packaged code uses" in capsys.readouterr().err
+
+
+def test_a_changed_seed_is_caught_by_recomputation(scratch):
+    settings = _read(scratch, "experiment/execution_settings.json")
+    settings["seed"] = settings["seed"] + 1
+    _write(scratch, "experiment/execution_settings.json", settings)
+    _restore_object(scratch, "experiment/execution_settings.json", "execution_settings")
+    seal(scratch)
+    assert verify(scratch) == 4
+
+
+def test_the_verifier_expectations_do_not_drift_from_the_builder(scratch):
+    """The verifier holds its own unit table on purpose; this stops the two silently diverging."""
+    assert verifier().EXPECTED_UNITS == builder().SCENARIO_INPUT_UNITS
+    assert tuple(verifier().EXPECTED_SCENARIOS) == builder().EXPECTED_SCENARIO_NUMBERS
+
+
+def test_the_execution_tolerance_cannot_conceal_the_reported_defects(scratch):
+    """The execution tolerance is for last-bit float noise, not for scientific slack.
+
+    Stated as a ratio so it cannot quietly grow: the smallest forged discrepancy the reviewer
+    produced is the Monte Carlo central, off by about 0.096 in units of 1e-10, and the tightest
+    pre-registered threshold is 0.005. Both are astronomically larger than this tolerance.
+    """
+    tolerance = verifier().EXECUTION_TOLERANCE
+    assert tolerance <= 1e-9
+    smallest_scientific_threshold = 0.005
+    assert tolerance < smallest_scientific_threshold / 1e6
+    smallest_forged_delta = 0.0956
+    assert tolerance < smallest_forged_delta / 1e6
+
+
+# --------------------------------------------------------------------------------------------
+# Code provenance: clean, dirty, and absent
+#
+# MEASURED 2026-09-30, GitHub Actions run 36714681896: the container job failed on
+# `assert code["commit_known"] is True`. The container has no git metadata, which the
+# implementation already handles correctly -- the test was asserting a property of the machine
+# it happened to run on. The three states are now each tested against a controlled checkout, and
+# the absent one must stay visibly absent rather than be smoothed into "clean".
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+
+
+@pytest.fixture
+def clean_checkout(tmp_path) -> Path:
+    repo = tmp_path / "clean"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "test@example.invalid")
+    _git(repo, "config", "user.name", "test")
+    (repo / "file.txt").write_text("content", encoding="utf-8")
+    _git(repo, "add", "file.txt")
+    _git(repo, "commit", "-q", "-m", "initial")
+    return repo
+
+
+def test_a_clean_checkout_is_recorded_as_clean(clean_checkout):
+    identity = builder().code_identity(clean_checkout)
+    assert identity["commit_known"] is True
+    assert identity["dirty"] is False
+    assert identity["dirty_paths"] == []
+    assert len(identity["commit"]) == 40
+
+
+def test_a_dirty_checkout_is_recorded_as_dirty(clean_checkout):
+    (clean_checkout / "file.txt").write_text("edited after the commit", encoding="utf-8")
+    identity = builder().code_identity(clean_checkout)
+    assert identity["commit_known"] is True
+    assert identity["dirty"] is True
+    assert "file.txt" in identity["dirty_paths"]
+
+
+def test_without_git_metadata_provenance_stays_visibly_unknown(tmp_path):
+    """The container's situation. Unknown must not be reported as clean, or invented."""
+    identity = builder().code_identity(tmp_path)
+    assert identity["commit"] is None
+    assert identity["commit_known"] is False
+    assert identity["dirty"] is None, "unknown is not False; a reader must see the difference"
+    assert identity["model_sha256"], "the code's own digest does not depend on git"
+
+
+def test_the_report_says_when_git_metadata_was_unavailable(baseline):
+    """Whatever the machine, the generated report has to state which of the three states held."""
+    module = builder()
+    from farsight.schemas.knowledge import Assumption
+
+    manifest = _read(baseline, "manifest.json")
+    results = _read(baseline, "metrics/results.json")
+    declared = [
+        Assumption.model_validate(a)
+        for a in _read(baseline, "registers/assumptions.json")["assumptions"]
+    ]
+    for dirty, expected in (
+        (True, "WORKING TREE DIRTY"),
+        (None, "GIT METADATA UNAVAILABLE"),
+    ):
+        altered = {**manifest, "code": {**manifest["code"], "dirty": dirty}}
+        assert expected in module.render_summary(altered, results, declared)
+    clean = {**manifest, "code": {**manifest["code"], "dirty": False}}
+    rendered = module.render_summary(clean, results, declared)
+    assert "WORKING TREE DIRTY" not in rendered
+    assert "GIT METADATA UNAVAILABLE" not in rendered
+
+
+def test_a_package_builds_and_verifies_without_git_metadata(tmp_path):
+    """The container path, end to end: no git, package still builds and still verifies.
+
+    This is the case that broke CI. Building must not depend on git being present, and the
+    resulting package must carry the unknown honestly and still pass every check.
+    """
+    module = builder()
+    out = tmp_path / "package"
+    manifest = module.build(out, counterfactual=None, seed=20260928, iterations=ITERATIONS,
+                            built_at=BUILT_AT, repo=tmp_path / "not-a-repo")
+    assert manifest["code"]["commit_known"] is False
+    assert manifest["code"]["dirty"] is None
+    assert "GIT METADATA UNAVAILABLE" in (out / "report" / "summary.md").read_text(encoding="utf-8")
+    assert verify(out) == 0, "a package from an unidentifiable checkout must still verify"

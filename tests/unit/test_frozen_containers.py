@@ -34,7 +34,7 @@ from pydantic import ValidationError
 
 from farsight.hashing.canonical import hash_object
 from farsight.registry.objects import ObjectStore, ObjectStoreError, object_address
-from farsight.schemas.belief import Pedigree
+from farsight.schemas.belief import Deterministic, Pedigree
 from farsight.schemas.common import (
     FrozenDict,
     FrozenList,
@@ -297,3 +297,124 @@ def test_a_frozen_container_survives_pickling_and_copying_still_frozen():
         with pytest.raises(TypeError, match="frozen document"):
             restored.sources.clear()
         assert hash_object(restored) == PEDIGREE_ADDRESS_BEFORE_THE_FIX
+
+
+# --------------------------------------------------------------------------------------------
+# Nested documents: the guard has to reach all the way down
+#
+# MEASURED 2026-09-30. The store validated `dict(obj.__dict__)`, which hands Pydantic the
+# already-constructed nested model instances. Pydantic accepts an instance of the right class
+# without re-running its field validators, so this passed:
+#
+#     bad = Pedigree.model_construct(level="measured_flight", sources=["not-a-digest"], ...)
+#     document_of(Deterministic(value=Quantity(...), pedigree=bad, ...))   # accepted
+#
+# while validating the serialized payload rejects it. Nested documents are the normal shape in
+# this schema stack, so a guard that stops at the outer model guards almost nothing.
+
+
+def _valid_envelope() -> ValidityEnvelope:
+    return ValidityEnvelope(conditions=["late mission"], ranges={})
+
+
+def _deterministic_with(pedigree: Pedigree) -> Deterministic:
+    return Deterministic(
+        kind="deterministic",
+        value=Quantity(magnitude="143.86", unit="W"),
+        pedigree=pedigree,
+        validity=_valid_envelope(),
+        derivation=None,
+    )
+
+
+def test_a_nested_invalid_reference_is_refused_at_the_store():
+    """The reviewer's exact case, through the real persistence path."""
+    bad = Pedigree.model_construct(
+        level="measured_flight", sources=["not-a-digest"],
+        assessor="h. le", assessed_on=_dt.date(2026, 9, 30),
+    )
+    belief = _deterministic_with(bad)
+    with pytest.raises(ObjectStoreError, match="validated document"):
+        object_address(belief)
+
+
+def test_a_nested_invalid_reference_is_refused_by_put(tmp_path):
+    bad = Pedigree.model_construct(
+        level="measured_flight", sources=["not-a-digest"],
+        assessor="h. le", assessed_on=_dt.date(2026, 9, 30),
+    )
+    store = ObjectStore(tmp_path)
+    with pytest.raises(ObjectStoreError, match="validated document"):
+        store.put(_deterministic_with(bad), _provenance())
+    assert store.refs() == [], "nothing may be written when the object is refused"
+
+
+@pytest.mark.parametrize("field, value, why", [
+    pytest.param("sources", ["not-a-digest"], "a source that is not a content address",
+                 id="invalid-ref"),
+    pytest.param("sources", [], "no source at all under a level that claims provenance",
+                 id="empty-sources"),
+    pytest.param("assessor", "   ", "a blank assessor", id="blank-assessor"),
+    pytest.param("level", "not_a_level", "a level outside the closed vocabulary", id="bad-level"),
+])
+def test_representative_nested_invalid_fields_are_refused(field, value, why, tmp_path):
+    """Not just the reported reference: every kind of nested violation must be caught."""
+    fields = {
+        "level": "measured_flight", "sources": [DIGEST],
+        "assessor": "h. le", "assessed_on": _dt.date(2026, 9, 30),
+    }
+    fields[field] = value
+    # The parent is constructed unvalidated too. Pydantic re-runs a nested model's *model-level*
+    # validators when the parent is built, but not its field-level constraints -- which is the
+    # precise shape of the defect. Building both unvalidated puts every case on the same footing
+    # and makes the store the only thing standing between an invalid document and an address.
+    belief = Deterministic.model_construct(
+        kind="deterministic",
+        value=Quantity(magnitude="143.86", unit="W"),
+        pedigree=Pedigree.model_construct(**fields),
+        validity=_valid_envelope(),
+        derivation=None,
+    )
+    store = ObjectStore(tmp_path)
+    with pytest.raises(ObjectStoreError, match="validated document"):
+        store.put(belief, _provenance())
+    assert store.refs() == []
+
+
+def test_a_valid_nested_document_still_stores_and_reads_back(tmp_path):
+    """The guard must not cost the ordinary nested path, which is most of this schema stack."""
+    store = ObjectStore(tmp_path)
+    belief = _deterministic_with(_pedigree())
+    ref = store.put(belief, _provenance())
+    read_back = store.get(ref)
+    assert read_back["pedigree"]["sources"] == [DIGEST]
+    assert read_back["value"] == {"magnitude": "143.86", "unit": "W"}
+    # And the round trip reconstructs an equal object, so persisting the validated form did not
+    # quietly change anything.
+    assert Deterministic.model_validate(read_back) == belief
+
+
+def test_the_stored_document_is_the_validated_payload(tmp_path):
+    """What is hashed is what a validator saw -- that is the sentence the address stands on."""
+    store = ObjectStore(tmp_path)
+    belief = _deterministic_with(_pedigree())
+    ref = store.put(belief, _provenance())
+    assert object_address(belief) == ref
+    assert hash_object(Deterministic.model_validate(store.get(ref))) == ref
+
+
+def test_nested_documents_survive_copying_pickling_and_serialisation(tmp_path):
+    """Compatibility, checked rather than assumed, since the fix changed what gets persisted."""
+    import copy
+    import pickle
+
+    belief = _deterministic_with(_pedigree())
+    store = ObjectStore(tmp_path)
+    reference = store.put(belief, _provenance())
+    for restored in (pickle.loads(pickle.dumps(belief)), copy.deepcopy(belief),
+                     belief.model_copy(deep=True), copy.copy(belief)):
+        assert restored == belief
+        assert object_address(restored) == reference
+        assert isinstance(restored.pedigree.sources, FrozenList)
+        with pytest.raises(TypeError, match="frozen document"):
+            restored.pedigree.sources.clear()

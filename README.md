@@ -49,15 +49,20 @@ python experiments/pioneer_thermal/build_evidence_package.py --out /tmp/pioneer_
 python experiments/pioneer_thermal/verify_evidence_package.py /tmp/pioneer_pkg
 ```
 
-Verification makes four separate checks — file integrity, schema and reference consistency,
-numerical recomputation from the packaged inputs, and agreement with the pre-registered targets
-— and says which one failed. It runs on the base install with **no engine extras and no network
-access**, and it leaves the package byte-identical.
+Verification makes four separate checks — file integrity; schema, reference and cross-file
+consistency; numerical recomputation of both the scenario accelerations and the Monte Carlo; and
+agreement with the pre-registered targets — and says which one failed. Every residual and verdict
+is *derived* from the recomputation rather than read from the package. It runs on the base
+install with **no engine extras and no network access**, and it leaves the package
+byte-identical.
 
 **What a verified package establishes:** the files are the ones that were sealed, every document
-satisfies its schema, every reference resolves inside the package, and recomputing from the
-packaged inputs reproduces the packaged results. **What it does not:** that the physics is
-right, that the reproduction succeeded, or that anyone external has reviewed it. This particular
+satisfies its schema, every reference resolves and each operational file matches its
+content-addressed object, every input carries the unit the model reads it as, and recomputing
+from the packaged inputs and recorded seed reproduces the packaged results and verdicts. **What
+it does not:** authenticate the package — the root hash is unsigned, so anyone able to rewrite a
+file can re-seal it — nor establish that the physics is right, that the reproduction succeeded,
+or that anyone external has reviewed it. This particular
 reproduction misses two of its pre-registered gates, and its package verifies cleanly while
 saying so — packaging a failed result is a requirement, not an accident.
 

@@ -49,6 +49,7 @@ from farsight.schemas.belief import Pedigree
 from farsight.schemas.common import Provenance, Quantity
 from farsight.schemas.design import Claim, ClaimResult
 from farsight.schemas.knowledge import Assumption, Source, SourceIdentifier
+from farsight.units import UnitError, encode_float
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -78,50 +79,62 @@ def load_model() -> Any:
 def decimal_string(value: float) -> str:
     """A float as a decimal string that reads back as the identical float.
 
-    MEASURED while building the counterfactual: rounding to twelve digits made the package
-    un-recomputable. The counterfactual's W_RTGb is 2024/14 = 144.5714285714..., and a scenario
-    recomputed from the *rounded* input landed a digit away from the recorded result, so
-    verification failed on a package that was perfectly honest.
-
-    The cause was a category error on my part: if the package records rounded inputs, then the
-    recorded inputs are not the inputs that produced the recorded results, and no amount of
-    tolerance-fiddling fixes that -- it just hides it. Python's ``repr`` gives the shortest
-    string that reads back as the same float, so what the package records IS what was computed
-    with, exactly, and recomputation is bit-for-bit.
+    Delegates to ``farsight.units.encode_float``, which is where ADR-022 decision 4 already
+    says this: the shortest decimal that round-trips to the same binary64, checked against
+    ADR-001's magnitude grammar. An earlier version of this function restated that rule and got
+    it wrong -- rounding to twelve digits made the package un-recomputable, because the
+    counterfactual's W_RTGb is 2024/14 and a scenario recomputed from the rounded input landed a
+    digit away from the recorded result.
     """
-    text = repr(float(value))
-    # `repr` can emit forms the DECIMAL_RE grammar refuses ("inf", "1e-10" is fine but "1E-10"
-    # or a bare "5." would not be). Round-tripping through Decimal proves the spelling parses,
-    # and the equality check proves nothing was lost.
-    if float(Decimal(text)) != float(value):
-        raise BuildError(f"{value!r} does not round-trip through its decimal spelling {text!r}")
-    return text
+    try:
+        return encode_float(float(value), "1").magnitude
+    except UnitError as exc:
+        raise BuildError(str(exc)) from exc
 
 
-def code_identity() -> dict[str, Any]:
+def code_identity(repo: Path = REPO) -> dict[str, Any]:
     """Which commit produced this, and whether the tree was dirty when it did.
 
     A dirty checkout is recorded, not refused. Refusing would push the operator into committing
     noise to get a package built; recording lets a reader discount the claim appropriately.
+
+    **Absent git metadata stays absent.** MEASURED 2026-09-30: the reference container has no
+    git metadata, so `commit_known` is False there and a test asserting otherwise failed in CI
+    (run 36714681896). The right answer is not to fabricate a commit or to soften the field --
+    a package built from an unidentifiable checkout is exactly the package a reader should trust
+    least, and the record has to say so. `commit` is None, `commit_known` is False, `dirty` is
+    None rather than False, and the generated report prints that the metadata was unavailable.
+
+    ``repo`` is a parameter so the three states -- clean, dirty, and no git at all -- can each be
+    tested against a controlled checkout instead of whatever the machine happens to be.
     """
     def git(*args: str) -> str | None:
         try:
             done = subprocess.run(
-                ["git", *args], cwd=REPO, capture_output=True, text=True, timeout=20, check=False
+                ["git", *args], cwd=repo, capture_output=True, text=True, timeout=20, check=False
             )
         except (OSError, subprocess.SubprocessError):
             return None
-        return done.stdout.strip() if done.returncode == 0 else None
+        # NOT stripped. MEASURED: stripping ate the leading space of `git status --porcelain`,
+        # whose format is two status columns then a space then the path, so every unstaged
+        # modification was recorded with the first character of its filename missing
+        # (" M file.txt" -> "ile.txt"). A provenance field that is subtly wrong is worse than one
+        # that is absent, because nothing about it looks broken.
+        return done.stdout if done.returncode == 0 else None
 
-    commit = git("rev-parse", "HEAD")
+    raw_commit = git("rev-parse", "HEAD")
+    commit = raw_commit.strip() if raw_commit is not None else None
     status = git("status", "--porcelain")
+    dirty_paths: list[str] = []
+    if status:
+        dirty_paths = sorted(
+            line[3:] for line in status.splitlines() if len(line) > 3
+        )[:50]
     return {
         "commit": commit,
         "commit_known": commit is not None,
         "dirty": None if status is None else bool(status.strip()),
-        "dirty_paths": [] if not status else sorted(
-            line[3:] for line in status.splitlines() if line[3:]
-        )[:50],
+        "dirty_paths": dirty_paths,
         "model_file": MODEL_PATH.name,
         "model_sha256": content_hash(MODEL_PATH.read_text(encoding="utf-8")),
     }
@@ -376,6 +389,63 @@ def _gate_2_verdict(model: Any, stats: dict[str, float]) -> str:
     return "pass" if central_ok and width_ok else "fail"
 
 
+# The canonical unit of every scenario input. The verifier checks each packaged quantity against
+# this table by DIMENSION and converts explicitly, so "W" relabelled as "kg" is refused rather
+# than silently accepted with its magnitude used as if it were watts.
+SCENARIO_INPUT_UNITS = {
+    "w_rtgb": "W",
+    "w_front": "W",
+    "w_lat": "W",
+    "w_back": "W",
+    "kd_ant": "1",
+    "ks_ant": "1",
+    "ks_lat": "1",
+}
+EXPECTED_SCENARIO_NUMBERS = (1, 2, 3, 4, 5)
+
+
+def execution_settings(model: Any, w_rtgb_override: float | None, seed: int,
+                       iterations: int) -> dict[str, Any]:
+    """Every parameter needed to recompute the Monte Carlo, written down.
+
+    The sampler reads several of these from module constants. Recording them here, and having
+    the verifier check the recorded value against the packaged code's constant before using it,
+    is what makes the recomputation independent rather than a re-run of whatever the code
+    happens to say today. A substituted constant is then a disagreement, not a silent change.
+    """
+    quantity = {
+        "w_rtgb_mean": Quantity(
+            magnitude=decimal_string(
+                w_rtgb_override if w_rtgb_override is not None else model._S4.w_rtgb
+            ),
+            unit="W",
+        ),
+        "w_equip": Quantity(magnitude=decimal_string(model.W_EQUIP_T26), unit="W"),
+        "w_front_mean": Quantity(magnitude=decimal_string(model._S4.w_front), unit="W"),
+        "w_front_sigma": Quantity(magnitude=decimal_string(7.5), unit="W"),
+        "w_rtgb_relative_sigma": Quantity(magnitude=decimal_string(0.25), unit="1"),
+        "kd_ant_low": Quantity(magnitude=decimal_string(0.6), unit="1"),
+        "kd_ant_high": Quantity(magnitude=decimal_string(0.8), unit="1"),
+        "k_total": Quantity(magnitude=decimal_string(0.8), unit="1"),
+        "ks_lat": Quantity(magnitude=decimal_string(model._S4.ks_lat), unit="1"),
+        "lateral_share": Quantity(magnitude=decimal_string(model.LATERAL_SHARE), unit="1"),
+    }
+    return {
+        "document": "pioneer_thermal_execution_settings",
+        "seed": seed,
+        "iterations": iterations,
+        "epoch_years": 26,
+        "reference_scenario": model._S4.number,
+        "parameters": {name: q.model_dump(mode="json") for name, q in quantity.items()},
+        "note": (
+            "The sampler takes w_rtgb_mean, w_equip, w_front_mean and w_front_sigma as "
+            "arguments and reads the rest from module constants. The verifier checks every "
+            "recorded value against the packaged code before recomputing, so a constant changed "
+            "in the code and not here -- or here and not in the code -- is a disagreement."
+        ),
+    }
+
+
 def acceptance_criteria(model: Any) -> dict[str, Any]:
     """The pre-registered thresholds, as a document with its own address.
 
@@ -518,7 +588,13 @@ def render_summary(manifest: dict[str, Any], results: dict[str, Any],
     """
     gate_1 = results["gate_1"]
     gate_2 = results["gate_2"]
-    dirty_note = " (WORKING TREE DIRTY)" if manifest["code"]["dirty"] else ""
+    dirty = manifest["code"]["dirty"]
+    # Three states, and the unknown one is not silently the same as clean.
+    dirty_note = {
+        True: " (WORKING TREE DIRTY)",
+        False: "",
+        None: " (GIT METADATA UNAVAILABLE -- provenance of this build is unverified)",
+    }[dirty]
     lines = [
         "# Pioneer thermal reproduction -- evidence summary",
         "",
@@ -633,9 +709,19 @@ names the rest rather than leaving a reader to discover the gaps.
 
 ## What a verified package means
 
-That the files are the ones that were sealed, that the documents satisfy their schemas, that
-every reference resolves, and that recomputing from the packaged inputs reproduces the packaged
-results.
+- the files are the ones that were sealed;
+- every document satisfies its schema, every reference resolves inside the package, and each
+  operational file agrees with the content-addressed object holding the same content;
+- every scenario input carries the unit the model reads it as, converted explicitly when it is
+  given in a different but dimensionally compatible one;
+- the scenario accelerations and the Monte Carlo statistics were recomputed by the verifier from
+  the packaged inputs, the packaged code and the recorded seed, and match what is recorded;
+- every residual and verdict was derived from those recomputed numbers against the
+  pre-registered targets, and agrees with every verdict the package records.
+
+**It does not authenticate the package.** The root hash is unsigned, so anyone who can rewrite a
+file can re-seal the manifest. Verification establishes internal consistency and
+reproducibility, not that the bytes came from anyone in particular.
 
 **It does not mean the physics is right, that the reproduction succeeded, or that anyone
 external has reviewed it.** This reproduction misses two of its pre-registered gates, and its
@@ -644,8 +730,13 @@ package verifies cleanly while saying so.
 
 
 def build(destination: Path, *, counterfactual: str | None, seed: int, iterations: int,
-          built_at: dt.datetime) -> dict[str, Any]:
-    """Build one package. Returns the manifest that was written."""
+          built_at: dt.datetime, repo: Path = REPO) -> dict[str, Any]:
+    """Build one package. Returns the manifest that was written.
+
+    ``repo`` is where code provenance is read from. It is a parameter so that the clean, dirty
+    and no-git-metadata cases can each be built against a controlled checkout -- the container
+    has no git metadata, and that path has to be exercised rather than assumed.
+    """
     if destination.exists() and any(destination.iterdir()):
         raise BuildError(
             f"{destination} already exists and is not empty. Refusing to write a package over "
@@ -675,6 +766,9 @@ def build(destination: Path, *, counterfactual: str | None, seed: int, iteration
 
     criteria = acceptance_criteria(model)
     criterion_ref = store.put(criteria, provenance)
+
+    settings = execution_settings(model, w_rtgb_override, seed, iterations)
+    settings_ref = store.put(settings, provenance)
 
     # One referent per scenario: the published number this claim is measured against, with its
     # own address, so a claim's referent_refs resolve to documents rather than to prose.
@@ -718,7 +812,7 @@ def build(destination: Path, *, counterfactual: str | None, seed: int, iteration
         "experiment": "pioneer_thermal",
         "variant": variant,
         "built_at": built_at.isoformat(),
-        "code": code_identity(),
+        "code": code_identity(repo),
         "execution": {
             "seed": seed,
             "iterations": iterations,
@@ -739,6 +833,7 @@ def build(destination: Path, *, counterfactual: str | None, seed: int, iteration
             "sources": source_refs,
             "assumptions": assumption_refs,
             "criterion": criterion_ref,
+            "execution_settings": settings_ref,
             "referents": {str(k): v for k, v in referent_refs.items()},
             "claims": claim_refs,
             "claim_results": claim_result_refs,
@@ -756,6 +851,7 @@ def build(destination: Path, *, counterfactual: str | None, seed: int, iteration
     _write_json(destination / "experiment" / "scenario_inputs.json",
                 {"scenarios": scenario_inputs(model, w_rtgb_override)})
     _write_json(destination / "experiment" / "acceptance_criteria.json", criteria)
+    _write_json(destination / "experiment" / "execution_settings.json", settings)
     _write_json(destination / "metrics" / "results.json", results)
     for name, content in registers(declared, assumption_refs).items():
         _write_json(destination / "registers" / name, content)

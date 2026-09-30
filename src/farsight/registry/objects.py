@@ -165,18 +165,33 @@ def document_of(obj: Any) -> Any:
 
     A non-model (a plain dict read back from disk, say) is passed through unchanged. There is no
     schema to re-run, and this function does not invent one.
+
+    **The payload is validated, not the object.** MEASURED 2026-09-30: an earlier version
+    validated ``dict(obj.__dict__)``, which hands Pydantic the *already-constructed* nested model
+    instances. Pydantic accepts an instance of the right class without re-running its field
+    validators, so a ``Pedigree`` built by ``model_construct`` with ``sources=["not-a-digest"]``,
+    embedded in an otherwise valid ``Deterministic``, passed straight through -- while validating
+    the serialized payload rejects it. Nested documents are the normal shape here, so a guard
+    that stops at the outer model guards almost nothing.
+
+    Validating ``model_dump(mode="json")`` is the fix, and it is the right object to validate for
+    a second reason: it is exactly what gets written to disk and hashed, so the address attests
+    to a payload a validator actually saw. The validated model is then re-dumped and that is what
+    is persisted, so any normalization a validator performs is in the stored bytes rather than
+    only in memory.
     """
     if not isinstance(obj, BaseModel):
         return obj
+    payload = obj.model_dump(mode="json")
     try:
-        type(obj).model_validate(dict(obj.__dict__))
+        validated = type(obj).model_validate(payload)
     except ValidationError as exc:
         raise ObjectStoreError(
             f"refusing to address a {type(obj).__name__} that does not satisfy its own schema. "
             f"A content address is the address of a validated document (ADR-001), so this "
             f"object cannot be stored until it is valid:\n{exc}"
         ) from exc
-    return obj.model_dump(mode="json")
+    return validated.model_dump(mode="json")
 
 
 def envelope_bytes(obj: Any, provenance: Provenance) -> bytes:
