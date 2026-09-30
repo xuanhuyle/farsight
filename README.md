@@ -39,6 +39,32 @@ turns out to be recoverable from geometry the paper never connects to it.
 All of it is internally cross-checked and **not externally expert-reviewed**
 ([ADR-030](docs/adr/)).
 
+### One runnable example: an evidence package
+
+The Pioneer reproduction is the first experiment wired through the evidence machinery. Build a
+package, then verify it offline:
+
+```bash
+python experiments/pioneer_thermal/build_evidence_package.py --out /tmp/pioneer_pkg
+python experiments/pioneer_thermal/verify_evidence_package.py /tmp/pioneer_pkg
+```
+
+Verification makes four separate checks — file integrity, schema and reference consistency,
+numerical recomputation from the packaged inputs, and agreement with the pre-registered targets
+— and says which one failed. It runs on the base install with **no engine extras and no network
+access**, and it leaves the package byte-identical.
+
+**What a verified package establishes:** the files are the ones that were sealed, every document
+satisfies its schema, every reference resolves inside the package, and recomputing from the
+packaged inputs reproduces the packaged results. **What it does not:** that the physics is
+right, that the reproduction succeeded, or that anyone external has reviewed it. This particular
+reproduction misses two of its pre-registered gates, and its package verifies cleanly while
+saying so — packaging a failed result is a requirement, not an accident.
+
+The format is a labelled subset of [ADR-007](docs/adr/ADR-007-evidence-package-format.md); every
+package carries a `PARTIAL_FORMAT.md` naming precisely what is unsupported. `farsight evidence`
+CLI verbs, `replay`, run channels and shipped JSON Schemas are **not** implemented.
+
 ## The ideas that shape everything else
 
 **Unknown is a valid state.** Uncertainty is a five-member type: a value you know, a
