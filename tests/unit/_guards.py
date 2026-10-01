@@ -81,3 +81,39 @@ def skip_or_fail_on_missing_kernels(detail: str) -> None:
             f"none of the real-ephemeris legs -- including the Horizons cross-check."
         )
     pytest.skip(detail)
+
+
+REQUIRE_GIT_ENV = "FARSIGHT_REQUIRE_GIT"
+
+
+def skip_or_fail_without_git(detail: str) -> None:
+    """Skip when there is no ``git`` binary -- unless the caller has said there must be one.
+
+    MEASURED 2026-09-30: the reference image contains no git at all, so tests that build a
+    controlled clean or dirty checkout raised ``FileNotFoundError: 'git'`` inside the container
+    while passing everywhere else. The code under test handles an absent git correctly -- that is
+    the whole point of the provenance fields -- but a fixture that *creates* a checkout cannot.
+
+    Which cases still run in that image matters more than the skip: the absent-git cases are
+    exactly the container's own condition, they need no binary, and they are not gated by this.
+    What is skipped here is only the clean and dirty cases, which are unconstructible without
+    git.
+
+    Same shape as :func:`skip_or_fail_on_missing_kernels`, and the same escape hatch:
+    ``FARSIGHT_REQUIRE_GIT=1`` turns the skip into a failure for a job that means to exercise
+    these paths.
+    """
+    import os
+    import shutil
+
+    import pytest
+
+    if shutil.which("git") is not None:
+        return
+    if os.environ.get(REQUIRE_GIT_ENV) == "1":
+        raise AssertionError(
+            f"{detail}\n"
+            f"{REQUIRE_GIT_ENV}=1 is set, so this is a FAILURE rather than a skip: the caller "
+            f"stated a git binary would be available."
+        )
+    pytest.skip(detail)

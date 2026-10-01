@@ -39,6 +39,37 @@ turns out to be recoverable from geometry the paper never connects to it.
 All of it is internally cross-checked and **not externally expert-reviewed**
 ([ADR-030](docs/adr/)).
 
+### One runnable example: an evidence package
+
+The Pioneer reproduction is the first experiment wired through the evidence machinery. Build a
+package, then verify it offline:
+
+```bash
+python experiments/pioneer_thermal/build_evidence_package.py --out /tmp/pioneer_pkg
+python experiments/pioneer_thermal/verify_evidence_package.py /tmp/pioneer_pkg
+```
+
+Verification makes four separate checks — file integrity; schema, reference and cross-file
+consistency; numerical recomputation of both the scenario accelerations and the Monte Carlo; and
+agreement with the pre-registered targets — and says which one failed. Every residual and verdict
+is *derived* from the recomputation rather than read from the package. It runs on the base
+install with **no engine extras and no network access**, and it leaves the package
+byte-identical.
+
+**What a verified package establishes:** the files are the ones that were sealed, every document
+satisfies its schema, every reference resolves and each operational file matches its
+content-addressed object, every input carries the unit the model reads it as, and recomputing
+from the packaged inputs and recorded seed reproduces the packaged results and verdicts. **What
+it does not:** authenticate the package — the root hash is unsigned, so anyone able to rewrite a
+file can re-seal it — nor establish that the physics is right, that the reproduction succeeded,
+or that anyone external has reviewed it. This particular
+reproduction misses two of its pre-registered gates, and its package verifies cleanly while
+saying so — packaging a failed result is a requirement, not an accident.
+
+The format is a labelled subset of [ADR-007](docs/adr/ADR-007-evidence-package-format.md); every
+package carries a `PARTIAL_FORMAT.md` naming precisely what is unsupported. `farsight evidence`
+CLI verbs, `replay`, run channels and shipped JSON Schemas are **not** implemented.
+
 ## The ideas that shape everything else
 
 **Unknown is a valid state.** Uncertainty is a five-member type: a value you know, a

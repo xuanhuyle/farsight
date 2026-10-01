@@ -277,11 +277,16 @@ def test_only_the_cache_module_writes_to_the_cache():
     #   registry/objects.py       the content-addressed object store
     #   registry/kernel_cache.py  the kernel cache -- the one ADR-016 decision 5 is about
     #   registry/channels.py      channel .npy files and channels_manifest.json (ADR-011)
+    #   evidence/manifest.py      the package seal, file_hashes.json and root_hash.txt.
+    #                             Atomic for the same reason as the stores: a half-written
+    #                             seal is a package asserting a root hash it does not have,
+    #                             and `verify` would report that crash as tampering.
     #
     # `registry/audit.py` is deliberately absent and is NOT an oversight: SQLite owns its own
     # durability there (WAL plus `synchronous=FULL`), which is what ADR-011 chose a database for.
     # It writes no file through this helper, so it cannot appear in this list.
-    sanctioned = {"registry/objects.py", "registry/kernel_cache.py", "registry/channels.py"}
+    sanctioned = {"registry/objects.py", "registry/kernel_cache.py", "registry/channels.py",
+                  "evidence/manifest.py"}
     assert set(writers) <= sanctioned, (
         f"write_atomic called outside the sanctioned stores: {sorted(set(writers) - sanctioned)}"
     )
