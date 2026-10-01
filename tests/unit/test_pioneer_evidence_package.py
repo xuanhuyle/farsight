@@ -706,21 +706,6 @@ def test_the_verifier_expectations_do_not_drift_from_the_builder(scratch):
     assert tuple(verifier().EXPECTED_SCENARIOS) == builder().EXPECTED_SCENARIO_NUMBERS
 
 
-def test_the_execution_tolerance_cannot_conceal_the_reported_defects(scratch):
-    """The execution tolerance is for last-bit float noise, not for scientific slack.
-
-    Stated as a ratio so it cannot quietly grow: the smallest forged discrepancy the reviewer
-    produced is the Monte Carlo central, off by about 0.096 in units of 1e-10, and the tightest
-    pre-registered threshold is 0.005. Both are astronomically larger than this tolerance.
-    """
-    tolerance = verifier().EXECUTION_TOLERANCE
-    assert tolerance <= 1e-9
-    smallest_scientific_threshold = 0.005
-    assert tolerance < smallest_scientific_threshold / 1e6
-    smallest_forged_delta = 0.0956
-    assert tolerance < smallest_forged_delta / 1e6
-
-
 # --------------------------------------------------------------------------------------------
 # Code provenance: clean, dirty, and absent
 #
@@ -815,3 +800,245 @@ def test_a_package_builds_and_verifies_without_git_metadata(tmp_path):
     assert manifest["code"]["dirty"] is None
     assert "GIT METADATA UNAVAILABLE" in (out / "report" / "summary.md").read_text(encoding="utf-8")
     assert verify(out) == 0, "a package from an unidentifiable checkout must still verify"
+
+
+# --------------------------------------------------------------------------------------------
+# The comparison tolerance, the unit inventory, and reference relationships
+#
+# MEASURED 2026-10-01 against a046c64. Three more ways a resealed package verified when it
+# should not have:
+#
+#   * `math.isclose(..., abs_tol=1e-12)` put an ABSOLUTE floor under a comparison of SI
+#     accelerations around 5e-10 m/s2. The tightest scientific threshold is 0.005e-10 = 5e-13
+#     m/s2, so the floor was larger than the threshold: a recorded acceleration moved by 9e-13
+#     m/s2, with its residual and verdict left alone, verified.
+#   * Units were checked on scenario inputs but nowhere else, so `w_front_mean` in the execution
+#     settings, and a recorded acceleration, could each be relabelled "kg".
+#   * Only the manifest's refs block was walked for resolution, so a `ClaimResult.aggregate_ref`
+#     of sixty-four f's resolved to nothing and passed.
+
+
+def _perturb_recorded_acceleration(package: Path, scenario_index: int, delta: float) -> None:
+    """Move one recorded acceleration by `delta` m/s2, leaving its residual and verdict alone."""
+    def mutate(results):
+        row = results["gate_1"]["scenarios"][scenario_index]
+        row["computed"]["magnitude"] = repr(float(row["computed"]["magnitude"]) + delta)
+
+    _forge_results(package, mutate)
+
+
+@pytest.mark.parametrize("scenario_index", range(5))
+def test_a_discrepancy_at_the_scientific_threshold_is_always_detected(scratch, scenario_index):
+    """The property that matters, checked per scenario instead of counted in orders of magnitude.
+
+    The pre-registered gate-1 tolerance is 0.005 in units of 1e-10 m/s2. Moving a recorded
+    acceleration by exactly that much must never pass, whatever the comparison's internals are.
+    """
+    criteria = _read(scratch, "experiment/acceptance_criteria.json")
+    threshold_si = float(criteria["gate_1"]["tolerance_1e10"]) * 1e-10
+    _perturb_recorded_acceleration(scratch, scenario_index, threshold_si)
+    assert verify(scratch) == 4
+
+
+def test_the_reported_nine_hundred_femto_discrepancy_is_detected(scratch):
+    """The reviewer's exact number: 9e-13 m/s2 on scenario 2, residual and verdict untouched."""
+    _perturb_recorded_acceleration(scratch, 1, 9e-13)
+    assert verify(scratch) == 4
+
+
+def test_the_comparison_has_no_absolute_floor():
+    """An absolute tolerance chosen without reference to scale is a hole, not a tolerance."""
+    module = verifier()
+    typical = 5e-10                      # a Pioneer acceleration, in SI
+    threshold = 5e-13                    # the tightest scientific threshold, in SI
+    assert not module._close(typical, typical + threshold), (
+        "a discrepancy at the scientific threshold must never compare equal"
+    )
+    assert not module._close(typical, typical + 9e-13)
+    # Last-bit float noise still passes, which is the only thing the tolerance is for.
+    assert module._close(typical, typical * (1 + 1e-14))
+    assert module._close(0.0, 0.0)
+    assert not module._close(0.0, 1e-20), "zero against non-zero is a disagreement"
+
+
+def test_the_execution_tolerance_is_relative_and_far_below_the_scientific_threshold(scratch):
+    """Stated as a ratio against the actual quantities, not as a vague count of orders."""
+    module = verifier()
+    assert module.EXECUTION_TOLERANCE <= 1e-12
+    criteria = _read(scratch, "experiment/acceptance_criteria.json")
+    tolerance_1e10 = float(criteria["gate_1"]["tolerance_1e10"])
+    targets = [float(t) for t in criteria["gate_1"]["targets_1e10"]]
+    # The loosest relative scientific threshold across the five scenarios.
+    tightest_relative = min(tolerance_1e10 / target for target in targets)
+    assert tightest_relative / module.EXECUTION_TOLERANCE > 1e8, (
+        "the scientific threshold must stay many orders above the execution tolerance"
+    )
+
+
+# --- the unit inventory -----------------------------------------------------------------
+
+
+def test_a_relabelled_execution_setting_unit_is_rejected(scratch, capsys):
+    settings = _read(scratch, "experiment/execution_settings.json")
+    settings["parameters"]["w_front_mean"]["unit"] = "kg"
+    _write(scratch, "experiment/execution_settings.json", settings)
+    _restore_object(scratch, "experiment/execution_settings.json", "execution_settings")
+    seal(scratch)
+    assert verify(scratch) == 3
+    err = capsys.readouterr().err
+    assert "w_front_mean" in err and "kg" in err
+
+
+def test_a_relabelled_recorded_acceleration_unit_is_rejected(scratch, capsys):
+    def mutate(results):
+        results["gate_1"]["scenarios"][0]["computed"]["unit"] = "kg"
+
+    _forge_results(scratch, mutate)
+    assert verify(scratch) == 3
+    err = capsys.readouterr().err
+    assert "scenario 1 recorded acceleration" in err and "kg" in err
+
+
+def test_a_relabelled_published_target_unit_is_rejected(scratch):
+    """The referent holds the published value the residual is measured against."""
+    from farsight.registry.objects import ObjectStore
+    from farsight.schemas.common import Provenance
+
+    manifest = _read(scratch, "manifest.json")
+    store = ObjectStore(scratch)
+    ref = manifest["refs"]["referents"]["1"]
+    document = store.get(ref)
+    document["a_th"]["unit"] = "kg"
+    manifest["refs"]["referents"]["1"] = store.put(
+        document,
+        Provenance(created_at=_dt.datetime(2026, 10, 1, tzinfo=_dt.UTC), frozen_by="forger",
+                   authorization="unattended", tool_version="forge/1"),
+    )
+    _write(scratch, "manifest.json", manifest)
+    seal(scratch)
+    assert verify(scratch) == 3
+
+
+def test_a_relabelled_published_a_th_in_the_inputs_is_rejected(scratch):
+    inputs = _read(scratch, "experiment/scenario_inputs.json")
+    inputs["scenarios"][0]["published_a_th"]["unit"] = "kg"
+    _write(scratch, "experiment/scenario_inputs.json", inputs)
+    seal(scratch)
+    assert verify(scratch) == 3
+
+
+def test_a_missing_execution_setting_is_rejected(scratch):
+    settings = _read(scratch, "experiment/execution_settings.json")
+    del settings["parameters"]["ks_lat"]
+    _write(scratch, "experiment/execution_settings.json", settings)
+    _restore_object(scratch, "experiment/execution_settings.json", "execution_settings")
+    seal(scratch)
+    assert verify(scratch) == 3
+
+
+def test_a_compatible_setting_unit_is_converted(scratch):
+    """Conversion is supported here too, and must not be mistaken for acceptance-and-ignore."""
+    settings = _read(scratch, "experiment/execution_settings.json")
+    watts = float(settings["parameters"]["w_front_sigma"]["magnitude"])
+    settings["parameters"]["w_front_sigma"]["magnitude"] = repr(watts / 1000.0)
+    settings["parameters"]["w_front_sigma"]["unit"] = "kW"
+    _write(scratch, "experiment/execution_settings.json", settings)
+    _restore_object(scratch, "experiment/execution_settings.json", "execution_settings")
+    _reseal_like_a_competent_forger(scratch)
+    assert verify(scratch) == 0
+
+
+def test_the_unit_inventory_does_not_drift_from_the_builder(scratch):
+    """Every quantity the verifier reads has a declared unit, and it is the one written."""
+    checker, maker = verifier(), builder()
+    assert checker.ACCELERATION_UNIT == maker.ACCELERATION_UNIT
+    settings = _read(scratch, "experiment/execution_settings.json")
+    assert set(checker.SETTING_UNITS) == set(settings["parameters"]), (
+        "a parameter the builder writes with no expected unit would go unchecked"
+    )
+
+
+# --- references: existence, and relationship --------------------------------------------
+
+
+def _reforge_claim_results(package: Path, mutate) -> None:
+    from farsight.registry.objects import ObjectStore
+    from farsight.schemas.common import Provenance
+
+    manifest = _read(package, "manifest.json")
+    store = ObjectStore(package)
+    provenance = Provenance(
+        created_at=_dt.datetime(2026, 10, 1, tzinfo=_dt.UTC), frozen_by="forger",
+        authorization="unattended", tool_version="forge/1",
+    )
+    forged = []
+    for ref in manifest["refs"]["claim_results"]:
+        document = store.get(ref)
+        mutate(document, manifest)
+        forged.append(store.put(document, provenance))
+    manifest["refs"]["claim_results"] = forged
+    _write(package, "manifest.json", manifest)
+    seal(package)
+
+
+def test_an_unresolvable_reference_inside_an_object_is_rejected(scratch, capsys):
+    """MEASURED: aggregate_ref of sixty-four f's resolved to nothing and verified."""
+    _reforge_claim_results(scratch, lambda doc, _m: doc.update(aggregate_ref="f" * 64))
+    assert verify(scratch) == 3
+    assert "do not resolve" in capsys.readouterr().err
+
+
+def test_a_claim_result_aggregating_other_results_is_rejected(scratch, capsys):
+    """Existence is not the test: the verdict must be about the results actually verified."""
+    _reforge_claim_results(
+        scratch, lambda doc, manifest: doc.update(aggregate_ref=manifest["refs"]["criterion"])
+    )
+    assert verify(scratch) == 5
+    assert "not about these numbers" in capsys.readouterr().err
+
+
+def test_a_claim_citing_other_criteria_is_rejected(scratch):
+    """The same relationship one level up: a claim must cite the criterion that was applied."""
+    from farsight.registry.objects import ObjectStore
+    from farsight.schemas.common import Provenance
+
+    manifest = _read(scratch, "manifest.json")
+    store = ObjectStore(scratch)
+    provenance = Provenance(
+        created_at=_dt.datetime(2026, 10, 1, tzinfo=_dt.UTC), frozen_by="forger",
+        authorization="unattended", tool_version="forge/1",
+    )
+    forged = []
+    for ref in manifest["refs"]["claims"]:
+        document = store.get(ref)
+        document["criterion_ref"] = manifest["refs"]["results"]
+        forged.append(store.put(document, provenance))
+    manifest["refs"]["claims"] = forged
+    manifest["claim_statements"] = [store.get(ref) for ref in forged]
+    _write(scratch, "manifest.json", manifest)
+    _reseal_like_a_competent_forger(scratch)
+    assert verify(scratch) == 5
+
+
+def test_an_unresolvable_source_reference_in_an_assumption_is_rejected(scratch):
+    """The reference walk covers every stored object, not just the claim results."""
+    from farsight.registry.objects import ObjectStore
+    from farsight.schemas.common import Provenance
+
+    manifest = _read(scratch, "manifest.json")
+    store = ObjectStore(scratch)
+    ref = manifest["refs"]["assumptions"][0]
+    document = store.get(ref)
+    document["source_refs"] = ["e" * 64]
+    manifest["refs"]["assumptions"][0] = store.put(
+        document,
+        Provenance(created_at=_dt.datetime(2026, 10, 1, tzinfo=_dt.UTC), frozen_by="forger",
+                   authorization="unattended", tool_version="forge/1"),
+    )
+    _write(scratch, "manifest.json", manifest)
+    registers = _read(scratch, "registers/assumptions.json")
+    registers["assumptions"][0] = document
+    registers["assumption_refs"] = manifest["refs"]["assumptions"]
+    _write(scratch, "registers/assumptions.json", registers)
+    _reseal_like_a_competent_forger(scratch)
+    assert verify(scratch) == 3

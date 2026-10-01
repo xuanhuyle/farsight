@@ -92,9 +92,25 @@ COEFFICIENT_INPUTS = ("kd_ant", "ks_ant", "ks_lat")
 # recorded in the package and the same number recomputed here; it exists because a float64 sum
 # may differ in its last bit or two across platforms, and for no other reason. The pre-registered
 # scientific thresholds (0.005 and 0.05, in units of 1e-10 m/s2) are untouched and live in the
-# package's acceptance criteria, where they always have. The gap between them is eleven orders of
-# magnitude, which is what stops this from concealing anything: the forged Monte Carlo central
-# differed from the true one by 0.096e-10, which is 1e11 times this tolerance.
+# package's acceptance criteria, where they always have.
+#
+# **It is RELATIVE, and that is the whole point.** MEASURED 2026-10-01: an earlier version passed
+# `abs_tol=1e-12` as well, which is an absolute floor in whatever units the numbers happen to
+# carry. Accelerations are stored in SI, around 5e-10 m/s2, so that floor was 0.2% of the value
+# and -- decisively -- larger than the tightest scientific threshold, 0.005e-10 = 5e-13 m/s2. A
+# package whose recorded acceleration had been moved by 9e-13 m/s2, more than the threshold,
+# verified. An absolute tolerance chosen without reference to the scale of what it compares is
+# not a tolerance, it is a hole.
+#
+# `abs_tol` is therefore 0.0: two values are close only if they agree to one part in 1e12. Exact
+# zeros still compare equal, because `math.isclose(0.0, 0.0)` is True; a zero against anything
+# non-zero is a disagreement, which is the answer we want.
+#
+# The margin, stated as a ratio rather than as a count of orders: for the scenario accelerations
+# the tightest scientific threshold is 0.005 against values of 2.27 to 6.92 (units of 1e-10), so
+# in relative terms it is between 7.2e-4 and 2.2e-3 -- at least 7.2e8 times this tolerance.
+# `test_a_discrepancy_at_the_scientific_threshold_is_always_detected` checks the property that
+# actually matters, per scenario, instead of relying on that arithmetic.
 EXECUTION_TOLERANCE = 1e-12
 
 
@@ -146,7 +162,66 @@ def _import_path(path: Path, name: str) -> Any:
 
 
 def _close(a: float, b: float) -> bool:
-    return math.isclose(a, b, rel_tol=EXECUTION_TOLERANCE, abs_tol=EXECUTION_TOLERANCE)
+    """Relative agreement only. See EXECUTION_TOLERANCE for why there is no absolute floor."""
+    return math.isclose(a, b, rel_tol=EXECUTION_TOLERANCE, abs_tol=0.0)
+
+# Every Quantity-shaped document in the package, and the unit the calculation reads it as. This
+# is the bounded inventory: if a quantity is consumed or compared anywhere in verification, its
+# unit appears here. MEASURED 2026-10-01: `execution_settings.parameters.w_front_mean` and the
+# recorded `computed` acceleration were both unchecked, so relabelling either as "kg" verified.
+ACCELERATION_UNIT = "m / s2"
+SETTING_UNITS = {
+    "w_rtgb_mean": "W",
+    "w_equip": "W",
+    "w_front_mean": "W",
+    "w_front_sigma": "W",
+    "w_rtgb_relative_sigma": "1",
+    "kd_ant_low": "1",
+    "kd_ant_high": "1",
+    "k_total": "1",
+    "ks_lat": "1",
+    "lateral_share": "1",
+}
+# Keys inside stored objects that hold content addresses. Every one must resolve inside the
+# package; a reference that points nowhere is not a reference.
+REFERENCE_KEYS = frozenset({
+    "source_refs", "referent_refs", "artifact_refs", "cited_packages", "assumption_refs",
+    "criterion_ref", "claim_ref", "aggregate_ref", "sources", "supersedes",
+})
+
+
+def _quantity_in(raw: Any, expected_unit: str, where: str,
+                 converted: list[str] | None = None) -> float:
+    """Validate a Quantity document and return its magnitude in ``expected_unit``.
+
+    One place, so that every quantity the calculation consumes is checked the same way: it must
+    be a well-formed ``Quantity``, its unit must measure the right dimension, and a compatible
+    unit is converted explicitly rather than assumed. ``where`` names the offender.
+    """
+    try:
+        quantity = Quantity.model_validate(raw)
+    except Exception as exc:
+        raise Failure(EXIT_SCHEMA, f"{where} is not a Quantity: {exc}") from exc
+    if quantity.unit != expected_unit:
+        if not same_dimension(quantity.unit, expected_unit):
+            raise Failure(
+                EXIT_SCHEMA,
+                f"{where} is given in {quantity.unit!r}, which is not a {expected_unit!r}. The "
+                f"calculation reads this value as {expected_unit!r}; accepting the number and "
+                f"discarding the unit would let a mislabelled quantity change the answer "
+                f"silently.",
+            )
+        try:
+            quantity = convert(quantity, expected_unit)
+        except UnitError as exc:
+            raise Failure(EXIT_SCHEMA, f"{where}: {exc}") from exc
+        if converted is not None:
+            converted.append(f"{where}: {raw['unit']} -> {expected_unit}")
+    value = float(Decimal(quantity.magnitude))
+    if not math.isfinite(value):
+        raise Failure(EXIT_SCHEMA, f"{where} is not finite")
+    return value
+
 
 
 # ------------------------------------------------------------------------------------------
@@ -205,11 +280,19 @@ def check_2_schema_and_references(root: Path) -> dict[str, Any]:  # noqa: PLR091
         for name, value in _iter_refs(manifest["refs"])
         if value not in stored
     ]
+    # MEASURED 2026-10-01: only the manifest's own refs block was walked, so a reference held
+    # INSIDE a stored object could point nowhere and still verify -- a ClaimResult whose
+    # aggregate_ref was sixty-four f's passed every check. A reference that resolves to nothing
+    # is not a reference.
+    for ref, document in sorted(documents.items()):
+        for name, value in _iter_object_references(document, f"object {ref[:16]}..."):
+            if value not in stored:
+                unresolved.append(f"{name} -> {value[:16]}...")
     if unresolved:
         raise Failure(
             EXIT_SCHEMA,
-            "the manifest references objects that are not in this package:\n  "
-            + "\n  ".join(unresolved),
+            "references that do not resolve inside this package:\n  "
+            + "\n  ".join(sorted(set(unresolved))),
         )
 
     for claim in manifest["claim_statements"]:
@@ -277,6 +360,28 @@ def check_2_schema_and_references(root: Path) -> dict[str, Any]:  # noqa: PLR091
     return manifest
 
 
+def _iter_object_references(document: Any, prefix: str) -> list[tuple[str, str]]:
+    """Every content address held in a reference-shaped field of a stored document.
+
+    Keyed by field name rather than by hunting for anything 64 hex characters long: a digest
+    that is not a reference -- a file's sha256, say -- names bytes that are deliberately not
+    package content, and demanding that it resolve here would be wrong.
+    """
+    found: list[tuple[str, str]] = []
+    if isinstance(document, dict):
+        for key, value in document.items():
+            if key in REFERENCE_KEYS:
+                for item in (value if isinstance(value, list) else [value]):
+                    if isinstance(item, str) and len(item) == 64:
+                        found.append((f"{prefix}.{key}", item))
+            else:
+                found.extend(_iter_object_references(value, f"{prefix}.{key}"))
+    elif isinstance(document, list):
+        for index, item in enumerate(document):
+            found.extend(_iter_object_references(item, f"{prefix}[{index}]"))
+    return found
+
+
 def _iter_refs(refs: Any, prefix: str = "refs") -> list[tuple[str, str]]:
     """Every 64-hex string anywhere in the manifest's refs block, with where it came from."""
     found: list[tuple[str, str]] = []
@@ -315,7 +420,7 @@ def _check_summary_is_generated(root: Path, manifest: dict[str, Any]) -> None:
 # 3. Numerical recomputation
 
 
-def _validated_scenario_inputs(  # noqa: PLR0912
+def _validated_scenario_inputs(
     root: Path,
 ) -> tuple[dict[int, dict[str, float]], list[str]]:
     """Load the inputs the calculation consumes, and refuse anything the model cannot mean.
@@ -355,35 +460,9 @@ def _validated_scenario_inputs(  # noqa: PLR0912
             )
         values: dict[str, float] = {}
         for name, expected_unit in EXPECTED_UNITS.items():
-            try:
-                quantity = Quantity.model_validate(inputs[name])
-            except Exception as exc:
-                raise Failure(
-                    EXIT_SCHEMA, f"scenario {number} input {name!r} is not a Quantity: {exc}"
-                ) from exc
-            if quantity.unit != expected_unit:
-                if not same_dimension(quantity.unit, expected_unit):
-                    raise Failure(
-                        EXIT_SCHEMA,
-                        f"scenario {number} input {name!r} is given in {quantity.unit!r}, which "
-                        f"is not a {expected_unit!r}. This experiment's model reads it as "
-                        f"{expected_unit!r}; a unit that is accepted and then ignored would let "
-                        f"a mislabelled quantity change the answer silently.",
-                    )
-                try:
-                    quantity = convert(quantity, expected_unit)
-                except UnitError as exc:
-                    raise Failure(
-                        EXIT_SCHEMA,
-                        f"scenario {number} input {name!r}: {exc}",
-                    ) from exc
-                converted.append(f"scenario {number} {name}: {inputs[name]['unit']} "
-                                 f"-> {expected_unit}")
-            value = float(Decimal(quantity.magnitude))
-            if not math.isfinite(value):
-                raise Failure(
-                    EXIT_SCHEMA, f"scenario {number} input {name!r} is not finite"
-                )
+            value = _quantity_in(
+                inputs[name], expected_unit, f"scenario {number} input {name!r}", converted
+            )
             if name in POWER_INPUTS and value < 0:
                 raise Failure(
                     EXIT_SCHEMA,
@@ -397,6 +476,11 @@ def _validated_scenario_inputs(  # noqa: PLR0912
                     f"fraction in [0, 1].",
                 )
             values[name] = value
+        if "published_a_th" in row:
+            _quantity_in(
+                row["published_a_th"], ACCELERATION_UNIT,
+                f"scenario {number} published_a_th", converted,
+            )
         validated[number] = values
     return validated, converted
 
@@ -417,15 +501,18 @@ def _checked_execution_settings(root: Path, model: Any) -> dict[str, Any]:
     if settings["iterations"] < 1:
         raise Failure(EXIT_SCHEMA, f"iterations is {settings['iterations']}")
 
+    if set(settings["parameters"]) != set(SETTING_UNITS):
+        missing = sorted(set(SETTING_UNITS) - set(settings["parameters"]))
+        extra = sorted(set(settings["parameters"]) - set(SETTING_UNITS))
+        raise Failure(
+            EXIT_SCHEMA,
+            f"execution settings are wrong: missing {missing}, unexpected {extra}",
+        )
     parameters: dict[str, float] = {}
-    for name, raw in settings["parameters"].items():
-        try:
-            quantity = Quantity.model_validate(raw)
-        except Exception as exc:
-            raise Failure(
-                EXIT_SCHEMA, f"execution setting {name!r} is not a Quantity: {exc}"
-            ) from exc
-        parameters[name] = float(Decimal(quantity.magnitude))
+    for name, expected_unit in SETTING_UNITS.items():
+        parameters[name] = _quantity_in(
+            settings["parameters"][name], expected_unit, f"execution setting {name!r}"
+        )
 
     against_code = {
         "w_equip": model.W_EQUIP_T26,
@@ -473,7 +560,10 @@ def check_3_recomputation(root: Path) -> Recomputation:
     for number, values in sorted(inputs.items()):
         recomputed = model.thermal_acceleration(**values)
         out.accelerations[number] = recomputed
-        stored = float(Decimal(stored_scenarios[number]["computed"]["magnitude"]))
+        stored = _quantity_in(
+            stored_scenarios[number]["computed"], ACCELERATION_UNIT,
+            f"scenario {number} recorded acceleration", out.converted_units,
+        )
         if not _close(recomputed, stored):
             mismatches.append(
                 f"  scenario {number}: package says {stored!r}, recomputation gives {recomputed!r}"
@@ -551,7 +641,19 @@ def check_4_scientific_agreement(  # noqa: PLR0912, PLR0915
                 f"referent {ref[:16]}... is filed under scenario {key} but names scenario "
                 f"{document.get('scenario')}",
             )
-        targets[int(key)] = float(Decimal(document["a_th"]["magnitude"])) / 1e-10
+        targets[int(key)] = _quantity_in(
+            document["a_th"], ACCELERATION_UNIT, f"referent for scenario {key}"
+        ) / 1e-10
+
+    # The same relationship check one level up: a claim must cite the criterion that was applied.
+    for claim_ref in refs.get("claims", []):
+        claim = store.get(claim_ref)
+        if claim["criterion_ref"] != refs["criterion"]:
+            raise Failure(
+                EXIT_CONTRADICTION,
+                f"claim {claim['claim_id']} cites criterion {claim['criterion_ref'][:16]}..., "
+                f"but the criteria applied here are {refs['criterion'][:16]}...",
+            )
 
     criterion_targets = [float(Decimal(t)) for t in criteria["gate_1"]["targets_1e10"]]
     for index, number in enumerate(EXPECTED_SCENARIOS):
@@ -650,6 +752,16 @@ def check_4_scientific_agreement(  # noqa: PLR0912, PLR0915
                 f"the ClaimResult for {claim_id} records {result['verdict']!r}; the derived "
                 f"verdict is {expected!r}",
             )
+        # Existence is not enough. The verdict has to be about the results this run actually
+        # recomputed; a ClaimResult aggregating some other document is a verdict on something
+        # else, wearing this package's name.
+        if result["aggregate_ref"] != refs["results"]:
+            raise Failure(
+                EXIT_CONTRADICTION,
+                f"the ClaimResult for {claim_id} aggregates "
+                f"{result['aggregate_ref'][:16]}..., but the results verified here are "
+                f"{refs['results'][:16]}.... The verdict is not about these numbers.",
+            )
         seen.add(claim_id)
     if seen != set(by_claim):
         raise Failure(
@@ -704,7 +816,11 @@ def main() -> int:
     print("  - these files are the ones that were sealed, and none has changed;")
     print("  - every document satisfies its schema, every reference resolves inside the package,")
     print("    and each operational file agrees with its content-addressed object;")
-    print("  - every scenario input carries the unit the model reads it as;")
+    print("  - every quantity consumed or compared -- scenario inputs, published targets,")
+    print("    execution settings and recorded results -- carries the unit the calculation")
+    print("    reads it as, converted explicitly where it was given in a compatible one;")
+    print("  - every reference inside every stored object resolves here, and the claim results")
+    print("    aggregate the results that were actually recomputed;")
     print("  - the accelerations and the Monte Carlo statistics were recomputed here, from the")
     print("    packaged inputs, code and recorded seed, and match what the package records;")
     print("  - every residual and verdict was DERIVED from those recomputed numbers and the")

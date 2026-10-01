@@ -712,8 +712,11 @@ names the rest rather than leaving a reader to discover the gaps.
 - the files are the ones that were sealed;
 - every document satisfies its schema, every reference resolves inside the package, and each
   operational file agrees with the content-addressed object holding the same content;
-- every scenario input carries the unit the model reads it as, converted explicitly when it is
-  given in a different but dimensionally compatible one;
+- every quantity the calculation consumes or compares -- scenario inputs, published targets,
+  execution settings and recorded results -- carries the unit it is read as, converted
+  explicitly when given in a different but dimensionally compatible one;
+- every reference inside every stored object resolves within the package, and each claim result
+  aggregates the results that were actually recomputed;
 - the scenario accelerations and the Monte Carlo statistics were recomputed by the verifier from
   the packaged inputs, the packaged code and the recorded seed, and match what is recorded;
 - every residual and verdict was derived from those recomputed numbers against the
