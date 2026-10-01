@@ -49,7 +49,7 @@ from farsight.schemas.belief import Pedigree
 from farsight.schemas.common import Provenance, Quantity
 from farsight.schemas.design import Claim, ClaimResult
 from farsight.schemas.knowledge import Assumption, Source, SourceIdentifier
-from farsight.units import UnitError, encode_float
+from farsight.units import UnitError, convert, encode_float
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -622,10 +622,25 @@ def render_summary(manifest: dict[str, Any], results: dict[str, Any],
         "| --- | --- | --- | --- |",
     ]
     for row in gate_1["scenarios"]:
-        magnitude = Decimal(row["computed"]["magnitude"]) / Decimal("1e-10")
+        # Convert into the unit the heading claims BEFORE formatting. MEASURED 2026-10-01: the
+        # renderer divided the raw magnitude by 1e-10 whatever its unit said, so an acceleration
+        # recorded in km/s2 -- physically identical, and correctly converted by the verifier --
+        # printed 0.0023 under a 1e-10 m/s2 heading instead of 2.2721. A number shown under the
+        # wrong unit is a wrong number.
+        quantity = Quantity.model_validate(row["computed"])
+        display = None
+        if quantity.unit != ACCELERATION_UNIT:
+            try:
+                quantity = convert(quantity, ACCELERATION_UNIT)
+            except UnitError:
+                # The verifier refuses such a package; the renderer still has to produce
+                # something, and what it must not produce is a number that looks fine.
+                display = f"UNCONVERTIBLE ({quantity.magnitude} {quantity.unit})"
+        if display is None:
+            display = f"{Decimal(quantity.magnitude) / Decimal('1e-10'):.4f}"
         residual = Decimal(row["residual_1e10"])
         lines.append(
-            f"| {row['scenario']} | {magnitude:.4f} | {residual:+.4f} | "
+            f"| {row['scenario']} | {display} | {residual:+.4f} | "
             f"{'yes' if row['within_tolerance'] else '**NO**'} |"
         )
     lines += [

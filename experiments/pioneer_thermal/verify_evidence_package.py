@@ -165,6 +165,45 @@ def _close(a: float, b: float) -> bool:
     """Relative agreement only. See EXECUTION_TOLERANCE for why there is no absolute floor."""
     return math.isclose(a, b, rel_tol=EXECUTION_TOLERANCE, abs_tol=0.0)
 
+
+def _one_row_per_scenario(rows: Any, where: str) -> dict[int, Any]:
+    """Index rows by scenario, after proving there is exactly one of each.
+
+    MEASURED 2026-10-01: ``{row["scenario"]: row for row in rows}`` silently keeps the last
+    occurrence, so a forged scenario 5 prepended to the list vanished from every check while
+    staying in the file -- and the report printed scenario 5 twice, once passing at 6.7100 and
+    once failing at 6.9166. The uniqueness check that existed ran on the *deduplicated* keys,
+    which is to say on the evidence after the damage.
+
+    So the list is validated before any lookup is built from it, and the diagnostic names which
+    scenarios are duplicated, missing or unexpected rather than reporting that something is
+    wrong somewhere.
+    """
+    if not isinstance(rows, list) or not rows:
+        raise Failure(EXIT_SCHEMA, f"{where} is not a non-empty list of scenario rows")
+    numbers = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict) or "scenario" not in row:
+            raise Failure(EXIT_SCHEMA, f"{where}[{index}] has no scenario number")
+        numbers.append(row["scenario"])
+
+    expected = list(EXPECTED_SCENARIOS)
+    duplicated = sorted({n for n in numbers if numbers.count(n) > 1})
+    missing = [n for n in expected if n not in numbers]
+    unexpected = sorted({n for n in numbers if n not in expected})
+    if duplicated or missing or unexpected or len(numbers) != len(expected):
+        raise Failure(
+            EXIT_SCHEMA,
+            f"{where} must hold exactly one row for each of {expected}, and holds "
+            f"{numbers}."
+            + (f" Duplicated: {duplicated}." if duplicated else "")
+            + (f" Missing: {missing}." if missing else "")
+            + (f" Unexpected: {unexpected}." if unexpected else "")
+            + " A duplicate row is not a harmless copy: the reader sees both, and a lookup "
+              "built from the list sees only one of them.",
+        )
+    return {row["scenario"]: row for row in rows}
+
 # Every Quantity-shaped document in the package, and the unit the calculation reads it as. This
 # is the bounded inventory: if a quantity is consumed or compared anywhere in verification, its
 # unit appears here. MEASURED 2026-10-01: `execution_settings.parameters.w_front_mean` and the
@@ -356,8 +395,76 @@ def check_2_schema_and_references(root: Path) -> dict[str, Any]:  # noqa: PLR091
             "registers/assumptions.json does not match the addressed Assumption objects",
         )
 
+    _check_displayed_values_match_the_record(root, manifest)
     _check_summary_is_generated(root, manifest)
     return manifest
+
+
+# Every scientific or execution value the report displays that is stored in more than one place,
+# with the record that is authoritative for it. MEASURED 2026-10-01: the report rendered the
+# seed, iteration count, gate-1 tolerance and all three gate-2 targets from copies that nothing
+# compared against the originals, so a package advertising seed 123, one iteration and a
+# tolerance of 999 verified while the verification used the real values. Regenerating Markdown
+# from unchecked JSON moves the problem; it does not close it.
+#
+# (displayed copy, authoritative record, dotted path in each)
+DUPLICATED_DISPLAY_VALUES = (
+    ("manifest.json", "experiment/execution_settings.json", "execution.seed", "seed"),
+    ("manifest.json", "experiment/execution_settings.json",
+     "execution.iterations", "iterations"),
+    ("metrics/results.json", "experiment/acceptance_criteria.json",
+     "gate_1.tolerance_1e10", "gate_1.tolerance_1e10"),
+    ("metrics/results.json", "experiment/acceptance_criteria.json",
+     "gate_2.target_central_1e10", "gate_2.target_central_1e10"),
+    ("metrics/results.json", "experiment/acceptance_criteria.json",
+     "gate_2.target_half_width_1e10", "gate_2.target_half_width_1e10"),
+    ("metrics/results.json", "experiment/acceptance_criteria.json",
+     "gate_2.tolerance_1e10", "gate_2.tolerance_1e10"),
+)
+
+
+def _dotted(document: Any, path: str, where: str) -> Any:
+    for part in path.split("."):
+        if not isinstance(document, dict) or part not in document:
+            raise Failure(EXIT_SCHEMA, f"{where} has no {path}")
+        document = document[part]
+    return document
+
+
+def _check_displayed_values_match_the_record(root: Path, manifest: dict[str, Any]) -> None:
+    """Each duplicated display value against the record verification actually uses.
+
+    Checked per field, so one disagreement cannot mask another: every pair is compared and all
+    the mismatches are reported together.
+    """
+    documents = {
+        "manifest.json": manifest,
+        "experiment/execution_settings.json": _load_json(
+            root / "experiment" / "execution_settings.json"),
+        "experiment/acceptance_criteria.json": _load_json(
+            root / "experiment" / "acceptance_criteria.json"),
+        "metrics/results.json": _load_json(root / "metrics" / "results.json"),
+    }
+    mismatches = []
+    for shown_file, record_file, shown_path, record_path in DUPLICATED_DISPLAY_VALUES:
+        shown = _dotted(documents[shown_file], shown_path, shown_file)
+        record = _dotted(documents[record_file], record_path, record_file)
+        same = (
+            Decimal(str(shown)) == Decimal(str(record))
+            if isinstance(shown, (int, float, str)) and isinstance(record, (int, float, str))
+            else shown == record
+        )
+        if not same:
+            mismatches.append(
+                f"  {shown_file}:{shown_path} shows {shown!r}, but "
+                f"{record_file}:{record_path} -- the record verification uses -- says {record!r}"
+            )
+    if mismatches:
+        raise Failure(
+            EXIT_SCHEMA,
+            "the report would display values that disagree with the record they come from:\n"
+            + "\n".join(mismatches),
+        )
 
 
 def _iter_object_references(document: Any, prefix: str) -> list[tuple[str, str]]:
@@ -436,13 +543,7 @@ def _validated_scenario_inputs(
     if not isinstance(rows, list) or not rows:
         raise Failure(EXIT_SCHEMA, "experiment/scenario_inputs.json has no scenarios list")
 
-    numbers = [row.get("scenario") for row in rows]
-    if sorted(numbers) != list(EXPECTED_SCENARIOS):
-        raise Failure(
-            EXIT_SCHEMA,
-            f"expected scenarios {list(EXPECTED_SCENARIOS)}, found {numbers}. A duplicated, "
-            f"missing or substituted scenario changes which claims are being evidenced.",
-        )
+    _one_row_per_scenario(rows, "experiment/scenario_inputs.json scenarios")
 
     converted: list[str] = []
     validated: dict[int, dict[str, float]] = {}
@@ -548,13 +649,9 @@ def check_3_recomputation(root: Path) -> Recomputation:
     recorded = _load_json(root / "metrics" / "results.json")
     out = Recomputation(converted_units=converted)
 
-    stored_scenarios = {row["scenario"]: row for row in recorded["gate_1"]["scenarios"]}
-    if sorted(stored_scenarios) != list(EXPECTED_SCENARIOS):
-        raise Failure(
-            EXIT_SCHEMA,
-            f"metrics/results.json records scenarios {sorted(stored_scenarios)}, "
-            f"expected {list(EXPECTED_SCENARIOS)}",
-        )
+    stored_scenarios = _one_row_per_scenario(
+        recorded["gate_1"]["scenarios"], "metrics/results.json gate_1.scenarios"
+    )
 
     mismatches = []
     for number, values in sorted(inputs.items()):
@@ -665,7 +762,9 @@ def check_4_scientific_agreement(  # noqa: PLR0912, PLR0915
             )
 
     tolerance = float(Decimal(criteria["gate_1"]["tolerance_1e10"]))
-    stored_scenarios = {row["scenario"]: row for row in results["gate_1"]["scenarios"]}
+    stored_scenarios = _one_row_per_scenario(
+        results["gate_1"]["scenarios"], "metrics/results.json gate_1.scenarios"
+    )
     misses = []
     for number in EXPECTED_SCENARIOS:
         derived_residual = recomputed.accelerations[number] / 1e-10 - targets[number]

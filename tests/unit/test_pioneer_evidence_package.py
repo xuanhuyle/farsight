@@ -24,6 +24,7 @@ import shutil
 import socket
 import subprocess
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -173,6 +174,20 @@ def _reseal_like_a_competent_forger(package: Path) -> None:
     )
     manifest = _read(package, "manifest.json")
     manifest["refs"]["results"] = new_ref
+    # A ClaimResult aggregates the results object by digest, so re-storing the results moves it.
+    # A forger who left these behind would be caught by the aggregate_ref relationship check
+    # rather than by anything these tests are about.
+    from farsight.schemas.common import Provenance as _Provenance
+    forged_results = []
+    for ref in manifest["refs"]["claim_results"]:
+        document = store.get(ref)
+        document["aggregate_ref"] = new_ref
+        forged_results.append(store.put(
+            document,
+            _Provenance(created_at=_dt.datetime(2026, 9, 30, tzinfo=_dt.UTC), frozen_by="forger",
+                        authorization="unattended", tool_version="forge/1"),
+        ))
+    manifest["refs"]["claim_results"] = forged_results
     _write(package, "manifest.json", manifest)
 
     declared = [
@@ -602,6 +617,11 @@ def test_a_loosened_tolerance_cannot_rescue_a_failed_gate(scratch):
     criteria["gate_1"]["tolerance_1e10"] = "1.0"
     _write(scratch, "experiment/acceptance_criteria.json", criteria)
     _restore_object(scratch, "experiment/acceptance_criteria.json", "criterion")
+    # The results file carries a display copy of the same tolerance; a forger who changed only
+    # the criterion would be caught by the duplicate-display check instead.
+    results = _read(scratch, "metrics/results.json")
+    results["gate_1"]["tolerance_1e10"] = "1.0"
+    _write(scratch, "metrics/results.json", results)
     _reseal_like_a_competent_forger(scratch)
     # gate 1 now derives as "pass" against the widened tolerance while the file still records
     # "fail", which is a contradiction the verifier must report rather than paper over.
@@ -657,7 +677,7 @@ def test_a_duplicated_scenario_is_rejected(scratch, capsys):
     _write(scratch, "experiment/scenario_inputs.json", inputs)
     seal(scratch)
     assert verify(scratch) == 3
-    assert "substituted scenario" in capsys.readouterr().err
+    assert "exactly one row" in capsys.readouterr().err
 
 
 def test_a_missing_scenario_is_rejected(scratch):
@@ -692,11 +712,19 @@ def test_an_execution_setting_that_disagrees_with_the_packaged_code_is_rejected(
 
 
 def test_a_changed_seed_is_caught_by_recomputation(scratch):
+    """Changed in BOTH the record and the displayed copy, so it reaches recomputation.
+
+    Changing only one of them is a different defect, and is covered by
+    `test_each_displayed_metadata_field_is_checked_on_its_own`.
+    """
     settings = _read(scratch, "experiment/execution_settings.json")
     settings["seed"] = settings["seed"] + 1
     _write(scratch, "experiment/execution_settings.json", settings)
     _restore_object(scratch, "experiment/execution_settings.json", "execution_settings")
-    seal(scratch)
+    manifest = _read(scratch, "manifest.json")
+    manifest["execution"]["seed"] = settings["seed"]
+    _write(scratch, "manifest.json", manifest)
+    _reseal_like_a_competent_forger(scratch)
     assert verify(scratch) == 4
 
 
@@ -1042,3 +1070,135 @@ def test_an_unresolvable_source_reference_in_an_assumption_is_rejected(scratch):
     _write(scratch, "registers/assumptions.json", registers)
     _reseal_like_a_competent_forger(scratch)
     assert verify(scratch) == 3
+
+
+# --------------------------------------------------------------------------------------------
+# What the report shows, against what verification used
+#
+# MEASURED 2026-10-01 against 026e376. Three packages verified with exit 0 while showing a
+# reader something other than what was checked:
+#
+#   * a forged scenario 5 row prepended to results: the dict comprehensions kept the LAST
+#     occurrence, so the forgery vanished from every check while the report printed scenario 5
+#     twice -- once passing at 6.7100, once failing at 6.9166;
+#   * seed 123, one iteration and a tolerance of 999 displayed, while verification used the real
+#     settings and criteria, because those display copies were never compared with the records;
+#   * an acceleration recorded in km/s2 -- physically identical, correctly converted by the
+#     verifier -- printed as 0.0023 under a 1e-10 m/s2 heading.
+
+
+def _set_dotted(document, path: str, value) -> None:
+    parts = path.split(".")
+    for part in parts[:-1]:
+        document = document[part]
+    document[parts[-1]] = value
+
+
+def _report_scenario_rows(package: Path) -> list[str]:
+    lines = (package / "report" / "summary.md").read_text(encoding="utf-8").splitlines()
+    return [
+        line for line in lines
+        if line.startswith("| ") and line.split("|")[1].strip().isdigit()
+    ]
+
+
+def test_a_duplicate_scenario_row_is_rejected(scratch, capsys):
+    """The reviewer's forgery: a passing scenario 5 prepended, the failing one left in place."""
+    def mutate(results):
+        results["gate_1"]["scenarios"].insert(0, {
+            "scenario": 5,
+            "computed": {"magnitude": "6.71e-10", "unit": "m / s2"},
+            "residual_1e10": "0.0",
+            "within_tolerance": True,
+        })
+
+    _forge_results(scratch, mutate)
+    assert verify(scratch) == 3
+    err = capsys.readouterr().err
+    assert "exactly one row" in err and "Duplicated: [5]" in err
+
+
+def test_a_duplicate_is_caught_before_any_lookup_hides_it(scratch, capsys):
+    """A duplicate of a PASSING scenario, which a last-wins lookup would never notice."""
+    def mutate(results):
+        first = dict(results["gate_1"]["scenarios"][0])
+        first["computed"] = {"magnitude": "9.99e-10", "unit": "m / s2"}
+        results["gate_1"]["scenarios"].insert(0, first)
+
+    _forge_results(scratch, mutate)
+    assert verify(scratch) == 3
+    assert "Duplicated: [1]" in capsys.readouterr().err
+
+
+def test_a_missing_result_row_is_rejected(scratch, capsys):
+    def mutate(results):
+        del results["gate_1"]["scenarios"][2]
+
+    _forge_results(scratch, mutate)
+    assert verify(scratch) == 3
+    assert "Missing: [3]" in capsys.readouterr().err
+
+
+# Each displayed duplicate, forged on its own, so one rejection cannot mask another unchecked
+# field. The reviewer changed all six at once; that would pass if only the first were checked.
+@pytest.mark.parametrize("shown_file, shown_path, forged", [
+    pytest.param("manifest.json", "execution.seed", 123, id="seed"),
+    pytest.param("manifest.json", "execution.iterations", 1, id="iterations"),
+    pytest.param("metrics/results.json", "gate_1.tolerance_1e10", "999", id="gate1-tolerance"),
+    pytest.param("metrics/results.json", "gate_2.target_central_1e10", "999", id="gate2-central"),
+    pytest.param("metrics/results.json", "gate_2.target_half_width_1e10", "999",
+                 id="gate2-half-width"),
+    pytest.param("metrics/results.json", "gate_2.tolerance_1e10", "999", id="gate2-tolerance"),
+])
+def test_each_displayed_metadata_field_is_checked_on_its_own(scratch, shown_file, shown_path,
+                                                             forged, capsys):
+    document = _read(scratch, shown_file)
+    _set_dotted(document, shown_path, forged)
+    _write(scratch, shown_file, document)
+    if shown_file == "metrics/results.json":
+        _restore_object(scratch, shown_file, "results")
+    _reseal_like_a_competent_forger(scratch)
+    assert verify(scratch) == 3, f"{shown_path} was displayed without being checked"
+    err = capsys.readouterr().err
+    assert shown_path in err and "disagree with the record" in err
+
+
+def test_the_displayed_value_inventory_resolves_against_a_real_package(scratch):
+    """Every pair in the inventory must address something that exists, in both documents."""
+    module = verifier()
+    assert len(module.DUPLICATED_DISPLAY_VALUES) >= 6
+    documents = {
+        "manifest.json": _read(scratch, "manifest.json"),
+        "experiment/execution_settings.json": _read(scratch, "experiment/execution_settings.json"),
+        "experiment/acceptance_criteria.json": _read(
+            scratch, "experiment/acceptance_criteria.json"),
+        "metrics/results.json": _read(scratch, "metrics/results.json"),
+    }
+    for shown_file, record_file, shown_path, record_path in module.DUPLICATED_DISPLAY_VALUES:
+        shown = module._dotted(documents[shown_file], shown_path, shown_file)
+        record = module._dotted(documents[record_file], record_path, record_file)
+        assert Decimal(str(shown)) == Decimal(str(record))
+
+
+def test_a_compatible_unit_renders_the_correct_physical_value(scratch):
+    """Physically identical, so it must verify -- and the reader must see 2.2721, not 0.0023."""
+    def mutate(results):
+        row = results["gate_1"]["scenarios"][0]
+        row["computed"]["magnitude"] = repr(float(row["computed"]["magnitude"]) / 1000.0)
+        row["computed"]["unit"] = "km / s2"
+
+    _forge_results(scratch, mutate)
+    assert verify(scratch) == 0, "a physically equivalent package must still verify"
+    first_row = _report_scenario_rows(scratch)[0]
+    assert "2.2721" in first_row, f"the report shows the wrong physical value: {first_row}"
+    assert "0.0023" not in first_row
+
+
+def test_the_honest_report_still_reads_correctly(baseline):
+    """The baseline numbers, unchanged, as a reader sees them."""
+    rows = _report_scenario_rows(baseline)
+    assert len(rows) == 5
+    for row, expected in zip(rows, ["2.2721", "4.4341", "5.7115", "5.6881", "6.9166"],
+                             strict=True):
+        assert expected in row
+    assert "**NO**" in rows[4], "scenario 5 is the failing one and must read as failing"
